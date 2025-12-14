@@ -1,0 +1,13 @@
+node_modules/
+vendor/
+*.log
+.DS_Store
+Thumbs.db
+npm-debug.log
+yarn.lock
+package-lock.json
+dist/
+build/
+*.tmp
+*.bak
+.env

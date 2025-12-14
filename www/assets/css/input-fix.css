@@ -1,0 +1,135 @@
+/* ========================================
+   ELECTRON INPUT FIX - Comprehensive Solution
+   Fixes input fields not accepting text in Electron apps
+   ======================================== */
+
+/* Force enable all input interactions */
+input,
+textarea,
+select,
+button {
+    pointer-events: auto !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+}
+
+/* Specific input types */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+input[type="search"],
+input[type="tel"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"],
+input[type="file"] {
+    pointer-events: auto !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    cursor: text !important;
+}
+
+/* Textarea specific */
+textarea {
+    pointer-events: auto !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    cursor: text !important;
+    resize: vertical;
+}
+
+/* Select dropdowns */
+select {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
+
+/* Bootstrap form controls */
+.form-control,
+.form-select {
+    pointer-events: auto !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+}
+
+/* Input groups */
+.input-group {
+    pointer-events: auto !important;
+}
+
+.input-group>* {
+    pointer-events: auto !important;
+}
+
+/* Ensure no overlay blocks inputs */
+.modal-body input,
+.modal-body textarea,
+.modal-body select,
+.card input,
+.card textarea,
+.card select {
+    pointer-events: auto !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    z-index: 1;
+    position: relative;
+}
+
+/* Labels - allow text selection but don't block inputs */
+label {
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Clickable labels (for checkboxes/radios) */
+.form-check-label,
+label[for] {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+/* Fix for contenteditable */
+[contenteditable="true"] {
+    pointer-events: auto !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    cursor: text !important;
+}
+
+/* Prevent drag events from interfering */
+input,
+textarea {
+    -webkit-user-drag: none;
+    user-drag: none;
+}
+
+/* Fix focus issues */
+input:focus,
+textarea:focus,
+select:focus {
+    outline: none !important;
+    border-color: #0d6efd !important;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
+}
+
+/* Ensure buttons work */
+button {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+/* Fix for disabled state */
+input:disabled,
+textarea:disabled,
+select:disabled,
+button:disabled {
+    pointer-events: none !important;
+    cursor: not-allowed !important;
+}
