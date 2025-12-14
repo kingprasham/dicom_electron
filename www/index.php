@@ -486,6 +486,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     </ul>
                 </div>
                 <button class="btn btn-info" id="medicalReportBtn" title="Medical Report"><i class="bi bi-file-medical me-1"></i>Report</button>
+                <button class="btn btn-warning" id="viewAllImagesBtn" title="View All Images Overview"><i class="bi bi-images me-1"></i>All</button>
                 <button class="btn btn-secondary" id="printBtn" title="Print DICOM Image"><i class="bi bi-printer me-1"></i>Print</button>
                 <button class="btn btn-secondary" id="settingsBtn" title="Settings"><i class="bi bi-gear me-1"></i>Settings</button>
                 <button class="btn btn-secondary" id="fullscreenBtn" title="Fullscreen"><i class="bi bi-arrows-fullscreen"></i></button>
@@ -727,6 +728,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
     <script src="<?= BASE_PATH ?>/js/components/mouse-controls.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/export-manager.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/print-manager-v3.js?v=<?= time() ?>"></script>
+    <script src="<?= BASE_PATH ?>/js/components/image-overview-modal.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/settings-manager.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/mobile-controls.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/mpr-button-handlers.js?v=<?= time() ?>"></script>
