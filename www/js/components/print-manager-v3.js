@@ -252,21 +252,66 @@ window.DICOM_VIEWER.PrintManager = class {
                                 <i class="bi bi-file-earmark me-2"></i>What would you like to print?
                             </h6>
                             <div class="row g-3 mb-4">
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <div class="print-type-card active" data-type="viewport">
                                         <input type="radio" name="printType" value="viewport" checked hidden>
                                         <i class="bi bi-grid-3x3 fs-3 text-primary mb-2"></i>
-                                        <h6 class="mb-1">Current Viewport</h6>
-                                        <small class="text-muted">Print exactly what you see<br>with all adjustments and annotations</small>
+                                        <h6 class="mb-1">Current View</h6>
+                                        <small class="text-muted">Print exactly what you see<br>with all adjustments</small>
                                     </div>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-4">
+                                    <div class="print-type-card" data-type="allImages">
+                                        <input type="radio" name="printType" value="allImages" hidden>
+                                        <i class="bi bi-images fs-3 text-warning mb-2"></i>
+                                        <h6 class="mb-1">All Images</h6>
+                                        <small class="text-muted">Print all ${state.currentSeriesImages?.length || 0} images<br>in selected grid layout</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
                                     <div class="print-type-card" data-type="report">
                                         <input type="radio" name="printType" value="report" hidden>
                                         <i class="bi bi-file-medical fs-3 text-success mb-2"></i>
                                         <h6 class="mb-1">Medical Report</h6>
                                         <small class="text-muted" id="reportStatus">Checking for report...</small>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Layout Selector for All Images (hidden by default) -->
+                            <div id="allImagesOptions" style="display: none;">
+                                <h6 class="text-primary mb-3">
+                                    <i class="bi bi-grid me-2"></i>Select Grid Layout
+                                </h6>
+                                <div class="row g-2 mb-4">
+                                    <div class="col-3">
+                                        <div class="layout-option selected" data-layout="2x2">
+                                            <i class="bi bi-grid fs-4"></i><br><small>2x2</small>
+                                            <div class="text-muted small">4/page</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-3">
+                                        <div class="layout-option" data-layout="3x3">
+                                            <i class="bi bi-grid-3x3 fs-4"></i><br><small>3x3</small>
+                                            <div class="text-muted small">9/page</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-3">
+                                        <div class="layout-option" data-layout="4x4">
+                                            <i class="bi bi-grid-3x3-gap fs-4"></i><br><small>4x4</small>
+                                            <div class="text-muted small">16/page</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-3">
+                                        <div class="layout-option" data-layout="5x5">
+                                            <i class="bi bi-grid-fill fs-4"></i><br><small>5x5</small>
+                                            <div class="text-muted small">25/page</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="alert alert-info small mb-3">
+                                    <i class="bi bi-info-circle me-2"></i>
+                                    <span id="pageCalculation">Loading...</span>
                                 </div>
                             </div>
 
@@ -320,7 +365,7 @@ window.DICOM_VIEWER.PrintManager = class {
                     background: rgba(255, 255, 255, 0.05);
                     border: 2px solid rgba(255, 255, 255, 0.1);
                     border-radius: 12px;
-                    padding: 20px;
+                    padding: 15px;
                     text-align: center;
                     cursor: pointer;
                     transition: all 0.3s ease;
@@ -342,6 +387,27 @@ window.DICOM_VIEWER.PrintManager = class {
                 .print-type-card.disabled {
                     opacity: 0.5;
                     cursor: not-allowed;
+                }
+
+                .layout-option {
+                    background: rgba(255, 255, 255, 0.05);
+                    border: 2px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 10px;
+                    padding: 12px 8px;
+                    text-align: center;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+
+                .layout-option:hover {
+                    background: rgba(255, 193, 7, 0.1);
+                    border-color: rgba(255, 193, 7, 0.4);
+                }
+
+                .layout-option.selected {
+                    background: rgba(255, 193, 7, 0.15);
+                    border-color: #ffc107;
+                    box-shadow: 0 0 10px rgba(255, 193, 7, 0.3);
                 }
 
                 .printer-option {
@@ -447,6 +513,20 @@ window.DICOM_VIEWER.PrintManager = class {
     }
 
     setupDialogEventListeners() {
+        const state = window.DICOM_VIEWER.STATE;
+        const totalImages = state.currentSeriesImages?.length || 0;
+
+        // Handle page count calculation based on layout
+        const updatePageCalculation = (layout) => {
+            const [rows, cols] = layout.split('x').map(Number);
+            const imagesPerPage = rows * cols;
+            const totalPages = Math.ceil(totalImages / imagesPerPage);
+            const pageCalc = document.getElementById('pageCalculation');
+            if (pageCalc) {
+                pageCalc.innerHTML = `<strong>${totalImages}</strong> images → <strong>${totalPages}</strong> page${totalPages > 1 ? 's' : ''} (${imagesPerPage} images per page)`;
+            }
+        };
+
         // Print type selection
         document.querySelectorAll('.print-type-card').forEach(card => {
             card.addEventListener('click', function () {
@@ -455,6 +535,25 @@ window.DICOM_VIEWER.PrintManager = class {
                 document.querySelectorAll('.print-type-card').forEach(c => c.classList.remove('active'));
                 this.classList.add('active');
                 this.querySelector('input[type="radio"]').checked = true;
+
+                // Toggle layout options visibility
+                const allImagesOptions = document.getElementById('allImagesOptions');
+                if (this.dataset.type === 'allImages') {
+                    allImagesOptions.style.display = 'block';
+                    const selectedLayout = document.querySelector('.layout-option.selected')?.dataset.layout || '2x2';
+                    updatePageCalculation(selectedLayout);
+                } else {
+                    allImagesOptions.style.display = 'none';
+                }
+            });
+        });
+
+        // Layout option selection
+        document.querySelectorAll('.layout-option').forEach(option => {
+            option.addEventListener('click', function () {
+                document.querySelectorAll('.layout-option').forEach(o => o.classList.remove('selected'));
+                this.classList.add('selected');
+                updatePageCalculation(this.dataset.layout);
             });
         });
 
@@ -525,6 +624,9 @@ window.DICOM_VIEWER.PrintManager = class {
         try {
             if (printType === 'viewport') {
                 await this.printViewport(previewOnly);
+            } else if (printType === 'allImages') {
+                const selectedLayout = document.querySelector('.layout-option.selected')?.dataset.layout || '3x3';
+                await this.printAllImages(selectedLayout, previewOnly);
             } else if (printType === 'report') {
                 const reportId = document.querySelector('[data-type="report"]')?.dataset.reportId;
                 if (reportId) {
@@ -593,6 +695,365 @@ window.DICOM_VIEWER.PrintManager = class {
         }
     }
 
+    /**
+     * Print All Images - Creates multi-page print with all series images
+     * Paginates images based on selected grid layout
+     */
+    async printAllImages(layout, previewOnly = false) {
+        const state = window.DICOM_VIEWER.STATE;
+        const images = state.currentSeriesImages || [];
+
+        if (images.length === 0) {
+            this.showToast('No images to print', 'warning');
+            return;
+        }
+
+        const [rows, cols] = layout.split('x').map(Number);
+        const imagesPerPage = rows * cols;
+        const totalPages = Math.ceil(images.length / imagesPerPage);
+
+        this.showLoadingModal(`Preparing ${images.length} images for printing...`, 0);
+
+        try {
+            // Get patient info
+            const currentImage = images[0] || {};
+            const patientInfo = {
+                name: currentImage.patient_name || currentImage.patientName || 'Unknown Patient',
+                id: currentImage.patient_id || currentImage.patientId || '',
+                age: currentImage.patient_age || currentImage.patientAge || '',
+                sex: currentImage.patient_sex || currentImage.patientSex || '',
+                studyDate: currentImage.study_date || currentImage.studyDate || new Date().toLocaleDateString(),
+                studyDescription: currentImage.study_description || currentImage.studyDescription || '',
+                institution: this.hospitalSettings?.hospital_name || 'Medical Imaging Center',
+                accessionNumber: currentImage.accession_number || ''
+            };
+
+            // Capture all image data URLs
+            const capturedImages = [];
+            const viewportElement = document.querySelector('.viewport');
+
+            for (let i = 0; i < images.length; i++) {
+                this.updateLoadingProgress(`Capturing image ${i + 1} of ${images.length}...`, Math.round((i / images.length) * 80));
+
+                try {
+                    // Load image into cornerstone and capture
+                    const imageId = images[i].imageId;
+                    if (imageId && viewportElement) {
+                        await cornerstone.loadImage(imageId);
+                        await cornerstone.displayImage(viewportElement, await cornerstone.loadImage(imageId));
+
+                        // Wait for render
+                        await new Promise(resolve => setTimeout(resolve, 100));
+
+                        const canvas = viewportElement.querySelector('canvas');
+                        if (canvas) {
+                            capturedImages.push({
+                                dataUrl: canvas.toDataURL('image/png', 0.9),
+                                index: i + 1
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.error(`Error capturing image ${i}:`, err);
+                    // Use placeholder
+                    capturedImages.push({
+                        dataUrl: null,
+                        index: i + 1,
+                        error: true
+                    });
+                }
+            }
+
+            this.updateLoadingProgress('Generating print document...', 85);
+
+            // Generate multi-page HTML
+            const printHTML = this.generateAllImagesPrintHTML(capturedImages, patientInfo, layout, totalPages, previewOnly);
+
+            const printWindow = window.open('', '_blank', 'width=1200,height=900');
+            if (!printWindow) {
+                throw new Error('Please allow popups to print');
+            }
+
+            printWindow.document.write(printHTML);
+            printWindow.document.close();
+
+            this.updateLoadingProgress('Complete!', 100);
+
+            if (!previewOnly) {
+                setTimeout(() => {
+                    printWindow.print();
+                }, 500);
+            }
+
+        } catch (error) {
+            console.error('All images print error:', error);
+            throw error;
+        } finally {
+            this.hideLoadingModal();
+        }
+    }
+
+    /**
+     * Generate HTML for all images print with multiple pages
+     */
+    generateAllImagesPrintHTML(capturedImages, patientInfo, layout, totalPages, previewOnly) {
+        const settings = this.printSettings;
+        const [rows, cols] = layout.split('x').map(Number);
+        const imagesPerPage = rows * cols;
+
+        const marginValues = { none: 0, narrow: 5, normal: 10, wide: 20 };
+        const margin = marginValues[settings.margins] || 10;
+
+        // Split images into pages
+        const pages = [];
+        for (let i = 0; i < capturedImages.length; i += imagesPerPage) {
+            pages.push(capturedImages.slice(i, i + imagesPerPage));
+        }
+
+        // Generate page HTML for each page
+        const pagesHTML = pages.map((pageImages, pageIndex) => {
+            const cellsHTML = pageImages.map(img => {
+                if (img.error || !img.dataUrl) {
+                    return `<div class="viewport-cell error"><span>Image ${img.index}<br>Failed to load</span></div>`;
+                }
+                return `
+                    <div class="viewport-cell">
+                        <img src="${img.dataUrl}" alt="Image ${img.index}">
+                        <div class="image-number">${img.index}</div>
+                    </div>
+                `;
+            }).join('');
+
+            // Add empty cells to fill the grid
+            const emptyCells = imagesPerPage - pageImages.length;
+            const emptyCellsHTML = emptyCells > 0 ?
+                Array(emptyCells).fill('<div class="viewport-cell empty"></div>').join('') : '';
+
+            return `
+                <div class="print-page" data-page="${pageIndex + 1}">
+                    <div class="page-header">
+                        <div class="header-content">
+                            <div class="hospital-info">
+                                <h2>${patientInfo.institution}</h2>
+                                <p>Medical Imaging Department</p>
+                            </div>
+                            <div class="patient-info">
+                                <strong>${patientInfo.name}</strong><br>
+                                ${patientInfo.id ? `ID: ${patientInfo.id}<br>` : ''}
+                                ${patientInfo.accessionNumber ? `Acc#: ${patientInfo.accessionNumber}<br>` : ''}
+                                Study: ${patientInfo.studyDate}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="viewport-grid" style="grid-template-columns: repeat(${cols}, 1fr); grid-template-rows: repeat(${rows}, 1fr);">
+                        ${cellsHTML}${emptyCellsHTML}
+                    </div>
+
+                    <div class="page-footer">
+                        <div>Page ${pageIndex + 1} of ${totalPages}</div>
+                        <div>Printed: ${new Date().toLocaleString()}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DICOM Print - All Images - ${patientInfo.name}</title>
+    <style>
+        @page {
+            size: ${settings.paperSize} ${settings.orientation};
+            margin: ${margin}mm;
+        }
+
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            .print-page { page-break-after: always; margin-bottom: 0 !important; box-shadow: none !important; }
+            .print-page:last-child { page-break-after: avoid; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+            color: ${previewOnly ? '#fff' : '#000'};
+        }
+
+        .print-toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .print-toolbar h4 { color: #fff; font-weight: 600; margin: 0; }
+
+        .print-toolbar button {
+            padding: 12px 28px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-print {
+            background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+            color: #fff;
+            margin-right: 10px;
+        }
+
+        .btn-print:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(13, 110, 253, 0.4); }
+        .btn-close { background: #6c757d; color: #fff; }
+
+        .print-content {
+            padding: ${previewOnly ? '80px 20px 20px' : '0'};
+            max-height: ${previewOnly ? 'calc(100vh - 80px)' : 'none'};
+            overflow-y: ${previewOnly ? 'auto' : 'visible'};
+        }
+
+        .print-page {
+            background: #fff;
+            color: #000;
+            max-width: ${settings.orientation === 'landscape' ? '297mm' : '210mm'};
+            min-height: ${settings.orientation === 'landscape' ? '200mm' : '280mm'};
+            margin: ${previewOnly ? '0 auto 30px' : '0'};
+            padding: 15px;
+            box-shadow: ${previewOnly ? '0 4px 30px rgba(0, 0, 0, 0.5)' : 'none'};
+            border-radius: ${previewOnly ? '8px' : '0'};
+        }
+
+        .page-header {
+            border-bottom: 3px solid #0d6efd;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .hospital-info h2 { color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
+        .hospital-info p { font-size: 11px; color: #666; }
+        .patient-info { text-align: right; font-size: 11px; }
+        .patient-info strong { font-size: 13px; color: #333; }
+
+        .viewport-grid {
+            display: grid;
+            gap: 6px;
+            height: ${settings.orientation === 'landscape' ? '155mm' : '230mm'};
+        }
+
+        .viewport-cell {
+            position: relative;
+            background: #000;
+            border: 1px solid #444;
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .viewport-cell img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .viewport-cell.empty { background: #1a1a1a; }
+        .viewport-cell.error { background: #2d1d1d; color: #ff6b6b; font-size: 11px; }
+
+        .image-number {
+            position: absolute;
+            bottom: 4px;
+            right: 4px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #00ff00;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', monospace;
+        }
+
+        .page-footer {
+            border-top: 1px solid #ddd;
+            padding-top: 8px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #666;
+        }
+
+        /* Page navigation for preview */
+        .page-nav {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            z-index: 1001;
+        }
+
+        .page-nav-item {
+            width: 30px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .page-nav-item:hover { background: rgba(13, 110, 253, 0.5); border-color: #0d6efd; }
+    </style>
+</head>
+<body>
+    ${previewOnly ? `
+    <div class="print-toolbar no-print">
+        <h4>📄 Print Preview - ${capturedImages.length} Images on ${totalPages} Pages (${layout} Grid)</h4>
+        <div>
+            <button class="btn-print" onclick="window.print()">🖨️ Print All Pages</button>
+            <button class="btn-close" onclick="window.close()">✕ Close</button>
+        </div>
+    </div>
+    <div class="page-nav no-print">
+        ${pages.map((_, i) => `<div class="page-nav-item" title="Page ${i + 1}" onclick="document.querySelector('[data-page=\\'${i + 1}\\']').scrollIntoView({behavior:'smooth'})">${i + 1}</div>`).join('')}
+    </div>
+    ` : ''}
+
+    <div class="print-content">
+        ${pagesHTML}
+    </div>
+</body>
+</html>
+        `;
+    }
     generateViewportPrintHTML(viewportState, patientInfo, previewOnly) {
         const settings = this.printSettings;
         const [rows, cols] = viewportState.layout.split('x').map(Number);
