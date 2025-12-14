@@ -4,10 +4,35 @@ const state = {
     patient: null,
     studies: [],
     currentStudyUID: null,
-    remarkModal: null
+    remarkModal: null,
+    // User permissions for RBAC
+    user: null,
+    permissions: {
+        canManageReports: false,
+        canAddPrescriptions: false,
+        canAddRemarks: false,
+        isReadOnly: true
+    }
 };
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function () {
+    // Load user permissions first
+    try {
+        const authResponse = await fetch('../auth/check_session.php');
+        const authData = await authResponse.json();
+        if (authData.authenticated && authData.user) {
+            state.user = authData.user;
+            state.permissions = {
+                canManageReports: authData.user.can_manage_reports,
+                canAddPrescriptions: authData.user.can_add_prescriptions,
+                canAddRemarks: authData.user.can_add_remarks,
+                isReadOnly: authData.user.is_read_only
+            };
+        }
+    } catch (e) {
+        console.warn('Could not load user permissions:', e);
+    }
+
     // Initialize remark modal
     const remarkModalElement = document.getElementById('remarkModal');
     if (remarkModalElement) {
@@ -41,22 +66,22 @@ async function loadStudies(patientId) {
 
 function displayPatientInfo(patient) {
     document.getElementById('patientName').textContent = patient.patient_name || 'Unknown Patient';
-    
+
     // Calculate age
     const age = calculateAge(patient.patient_birth_date);
     const ageDisplay = age !== null ? age + ' yrs' : 'N/A';
-    
+
     // Format sex display
     const sex = patient.patient_sex || '';
     const sexDisplay = sex === 'M' ? 'Male' : sex === 'F' ? 'Female' : sex || 'N/A';
-    
+
     // Format DOB in dd/mm/yyyy
     const dobDisplay = formatDate(patient.patient_birth_date);
-    
-    document.getElementById('patientInfo').textContent = 
-        'ID: ' + (patient.patient_id || 'N/A') + 
-        ' | Sex: ' + sexDisplay + 
-        ' | Age: ' + ageDisplay + 
+
+    document.getElementById('patientInfo').textContent =
+        'ID: ' + (patient.patient_id || 'N/A') +
+        ' | Sex: ' + sexDisplay +
+        ' | Age: ' + ageDisplay +
         ' | DOB: ' + dobDisplay;
 }
 
@@ -85,6 +110,7 @@ function displayStudies(studies) {
                 <thead>
                     <tr>
                         <th>Study Description</th>
+                        <th>Accession #</th>
                         <th>Study Date</th>
                         <th>Modality</th>
                         <th>Referred By</th>
@@ -102,7 +128,7 @@ function displayStudies(studies) {
 
 function createStudyTableRow(study) {
     const hasReport = !!study.orthanc_id;
-    
+
     // Build a meaningful study description
     let studyDesc = '';
     if (study.study_description && study.study_description.trim() && study.study_description.trim().toLowerCase() !== 'unnamed study') {
@@ -115,12 +141,12 @@ function createStudyTableRow(study) {
     } else {
         studyDesc = 'Medical Study';
     }
-    
+
     // Add study ID if available and different from description
-    const studyIdDisplay = study.study_id && study.study_id !== 'N/A' && study.study_id.trim() 
-        ? study.study_id 
+    const studyIdDisplay = study.study_id && study.study_id !== 'N/A' && study.study_id.trim()
+        ? study.study_id
         : (study.accession_number || '');
-    
+
     studyDesc = escapeHtml(studyDesc);
     const studyDate = formatDate(study.study_date);
     const studyTime = formatTime(study.study_time);
@@ -130,12 +156,21 @@ function createStudyTableRow(study) {
     const orthancId = study.orthanc_id;
 
     const referredBy = escapeHtml(study.referred_by || '');
-    
+
+    // Build action buttons based on permissions
+    const canExport = !state.permissions.isReadOnly;
+    const canRemark = state.permissions.canAddRemarks;
+    const canPrescribe = state.permissions.canAddPrescriptions;
+    const canAddReferredBy = !state.permissions.isReadOnly;
+
     return `
         <tr id="study-${studyUID}">
             <td>
                 <strong>${studyDesc}</strong>
                 ${studyIdDisplay ? `<br><small style="color: var(--text-secondary);">ID: ${escapeHtml(studyIdDisplay)}</small>` : ''}
+            </td>
+            <td>
+                <span style="color: var(--accent); font-weight: 500;">${escapeHtml(study.accession_number || '-')}</span>
             </td>
             <td>
                 ${studyDate}
@@ -147,11 +182,11 @@ function createStudyTableRow(study) {
             <td>
                 ${referredBy ? `
                     <span class="text-light">${referredBy}</span>
-                ` : `
+                ` : (canAddReferredBy ? `
                     <button class="btn-sm btn-outline-secondary" onclick="showReferredByModal('${studyUID}')" title="Add Referring Doctor">
                         <i class="bi bi-plus"></i> Add
                     </button>
-                `}
+                ` : '<span class="text-muted">-</span>')}
             </td>
             <td>${imageCount} images</td>
             <td style="text-align: center;">
@@ -159,15 +194,21 @@ function createStudyTableRow(study) {
                     <button class="btn-sm btn-primary" onclick="openStudy('${studyUID}', '${orthancId}')" title="Open Study">
                         <i class="bi bi-box-arrow-up-right"></i> View
                     </button>
+                    ${canExport ? `
                     <button class="btn-sm btn-success" onclick="exportToJPG('${studyUID}', '${studyDesc}')" title="Export all images as JPG">
                         <i class="bi bi-download"></i> Export
                     </button>
+                    ` : ''}
+                    ${canRemark ? `
                     <button class="btn-sm btn-warning" onclick="showRemarkModal('${studyUID}', '${studyDesc}')" title="Add/View Remarks">
                         <i class="bi bi-chat-square-text"></i> Remark
                     </button>
+                    ` : ''}
+                    ${canPrescribe ? `
                     <button class="btn-sm btn-info" onclick="showPrescriptionModal('${studyUID}', '${studyDesc}')" title="Add/View Prescription">
                         <i class="bi bi-prescription2"></i> Rx
                     </button>
+                    ` : ''}
                     <button class="btn-sm" onclick="viewReport('${studyUID}', '${orthancId}')" ${!hasReport ? 'disabled' : ''} title="View Report">
                         <i class="bi bi-file-earmark-text"></i> Report
                     </button>
@@ -366,7 +407,7 @@ function formatTime(timeStr) {
     if (!timeStr) return '';
     // Clean up time string - remove any non-numeric characters except decimals
     const cleanTime = timeStr.replace(/[^0-9.]/g, '');
-    
+
     // Format DICOM time HHMMSS or HHMMSS.fraction to HH:MM:SS
     if (cleanTime.length >= 6) {
         const hours = cleanTime.substr(0, 2);
@@ -383,7 +424,7 @@ function formatTime(timeStr) {
 
 function calculateAge(birthDateStr) {
     if (!birthDateStr) return null;
-    
+
     let birthDate;
     // Handle DICOM format YYYYMMDD
     if (birthDateStr.length === 8 && !birthDateStr.includes('-')) {
@@ -395,17 +436,17 @@ function calculateAge(birthDateStr) {
     } else {
         birthDate = new Date(birthDateStr);
     }
-    
+
     if (isNaN(birthDate.getTime())) return null;
-    
+
     const today = new Date();
     let age = today.getFullYear() - birthDate.getFullYear();
     const monthDiff = today.getMonth() - birthDate.getMonth();
-    
+
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
         age--;
     }
-    
+
     return age;
 }
 
@@ -526,9 +567,9 @@ function displayReport(report) {
 
     // Determine which doctor name to display - check multiple possible fields
     const doctorName = report.reporting_physician_name ||
-                      report.reporting_physician ||
-                      report.created_by_name ||
-                      'Not specified';
+        report.reporting_physician ||
+        report.created_by_name ||
+        'Not specified';
 
     contentDiv.innerHTML = `
         <div class="report-card">
@@ -692,10 +733,10 @@ function showReferredByModal(studyUID) {
         `;
         document.body.appendChild(modal);
     }
-    
+
     state.currentStudyUID = studyUID;
     document.getElementById('referredByInput').value = '';
-    
+
     const bsModal = new bootstrap.Modal(modal);
     bsModal.show();
 }
@@ -706,7 +747,7 @@ async function saveReferredBy() {
         alert('Please enter a doctor name');
         return;
     }
-    
+
     try {
         const response = await fetch('../api/studies/update-referred-by.php', {
             method: 'POST',
@@ -716,14 +757,14 @@ async function saveReferredBy() {
                 referred_by: referredBy
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             // Close modal
             const modal = bootstrap.Modal.getInstance(document.getElementById('referredByModal'));
             modal.hide();
-            
+
             // Reload studies to show updated data
             const urlParams = new URLSearchParams(window.location.search);
             loadStudies(urlParams.get('patient_id'));
@@ -803,17 +844,17 @@ function showPrescriptionModal(studyUID, studyDesc) {
         `;
         document.body.appendChild(modal);
     }
-    
+
     state.currentStudyUID = studyUID;
     document.getElementById('prescriptionStudyName').textContent = studyDesc;
     document.getElementById('prescriptionNotes').value = '';
     document.getElementById('prescriptionFile').value = '';
     document.getElementById('existingPrescription').style.display = 'none';
     document.getElementById('currentAttachment').style.display = 'none';
-    
+
     // Load existing prescription
     loadPrescription(studyUID);
-    
+
     const bsModal = new bootstrap.Modal(modal);
     bsModal.show();
 }
@@ -822,10 +863,10 @@ async function loadPrescription(studyUID) {
     try {
         const response = await fetch(`../api/studies/prescription.php?study_uid=${encodeURIComponent(studyUID)}`);
         const result = await response.json();
-        
+
         if (result.success && result.prescription) {
             const rx = result.prescription;
-            
+
             // Show existing prescription
             document.getElementById('existingPrescription').style.display = 'block';
             document.getElementById('prescriptionDetails').innerHTML = `
@@ -835,10 +876,10 @@ async function loadPrescription(studyUID) {
                     <i class="bi bi-clock"></i> ${new Date(rx.created_at).toLocaleString()}
                 </small>
             `;
-            
+
             // Pre-fill form
             document.getElementById('prescriptionNotes').value = rx.notes || '';
-            
+
             // Show attachment if exists
             if (rx.attachment_path) {
                 document.getElementById('currentAttachment').style.display = 'block';
@@ -853,16 +894,16 @@ async function loadPrescription(studyUID) {
 async function savePrescription() {
     const notes = document.getElementById('prescriptionNotes').value.trim();
     const fileInput = document.getElementById('prescriptionFile');
-    
+
     if (!notes && !fileInput.files[0]) {
         alert('Please enter prescription notes or attach a file');
         return;
     }
-    
+
     const formData = new FormData();
     formData.append('study_uid', state.currentStudyUID);
     formData.append('notes', notes);
-    
+
     if (fileInput.files[0]) {
         // Validate file size (5MB)
         if (fileInput.files[0].size > 5 * 1024 * 1024) {
@@ -871,15 +912,15 @@ async function savePrescription() {
         }
         formData.append('attachment', fileInput.files[0]);
     }
-    
+
     try {
         const response = await fetch('../api/studies/prescription.php', {
             method: 'POST',
             body: formData
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             alert('Prescription saved successfully!');
             // Close modal
@@ -895,7 +936,7 @@ async function savePrescription() {
 
 async function removePrescriptionAttachment() {
     if (!confirm('Are you sure you want to remove the attachment?')) return;
-    
+
     try {
         const response = await fetch('../api/studies/prescription.php', {
             method: 'DELETE',
@@ -905,9 +946,9 @@ async function removePrescriptionAttachment() {
                 remove_attachment_only: true
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             document.getElementById('currentAttachment').style.display = 'none';
             alert('Attachment removed');

@@ -40,6 +40,13 @@ try {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
+    // Get current clinic location
+    $clinicLocationStmt = $mysqli->prepare("SELECT setting_value FROM hospital_settings WHERE setting_key = 'clinic_location_name'");
+    $clinicLocationStmt->execute();
+    $clinicLocationResult = $clinicLocationStmt->get_result()->fetch_assoc();
+    $currentClinicLocation = $clinicLocationResult['setting_value'] ?? 'Main Clinic';
+    $clinicLocationStmt->close();
+
     if ($httpCode === 200) {
         $studyIds = json_decode($response, true);
 
@@ -77,24 +84,25 @@ try {
                 }
                 $modalitiesStr = implode(',', array_unique($modalities));
 
-                // Insert or update study
+                // Insert or update study with clinic location
                 $stmt = $mysqli->prepare("
                     INSERT INTO cached_studies (
                         orthanc_id, study_instance_uid, patient_id,
                         study_description, study_date, study_time,
-                        accession_number, modalities, last_sync
+                        accession_number, clinic_location, modalities, last_sync
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
                     ON DUPLICATE KEY UPDATE
                         study_description = VALUES(study_description),
                         study_date = VALUES(study_date),
                         study_time = VALUES(study_time),
                         accession_number = VALUES(accession_number),
+                        clinic_location = VALUES(clinic_location),
                         modalities = VALUES(modalities),
                         last_sync = NOW()
                 ");
                 $stmt->bind_param(
-                    "ssssssss",
+                    "sssssssss",
                     $studyId,
                     $studyInstanceUID,
                     $patient['patient_id'],
@@ -102,6 +110,7 @@ try {
                     $studyDate,
                     $studyTime,
                     $accessionNumber,
+                    $currentClinicLocation,
                     $modalitiesStr
                 );
                 $stmt->execute();
@@ -113,19 +122,54 @@ try {
     // Continue even if sync fails
 }
 
+// Get filter parameters
+$accessionFilter = $_GET['accession'] ?? '';
+$clinicFilter = $_GET['clinic'] ?? '';
+
+// Get multi-clinic mode setting
+$multiClinicStmt = $mysqli->prepare("SELECT setting_value FROM hospital_settings WHERE setting_key = 'multi_clinic_mode'");
+$multiClinicStmt->execute();
+$multiClinicResult = $multiClinicStmt->get_result()->fetch_assoc();
+$isMultiClinicMode = ($multiClinicResult['setting_value'] ?? 'false') === 'true';
+$multiClinicStmt->close();
+
+// Build query with filters
+$whereClauses = ["s.patient_id = ?"];
+$params = [$patient['patient_id']];
+$types = "s";
+
+if (!empty($accessionFilter)) {
+    $whereClauses[] = "s.accession_number LIKE ?";
+    $params[] = "%$accessionFilter%";
+    $types .= "s";
+}
+
+if (!empty($clinicFilter)) {
+    $whereClauses[] = "s.clinic_location = ?";
+    $params[] = $clinicFilter;
+    $types .= "s";
+}
+
+$whereSQL = implode(" AND ", $whereClauses);
+
 // Get all studies for this patient with printed status and new status
 $stmt = $mysqli->prepare("
     SELECT s.*, 
            (CASE WHEN r.status = 'printed' THEN 1 ELSE 0 END) as is_printed
     FROM cached_studies s
     LEFT JOIN medical_reports r ON s.orthanc_id = r.study_uid
-    WHERE s.patient_id = ?
+    WHERE $whereSQL
     ORDER BY s.study_date DESC, s.study_time DESC
 ");
-$stmt->bind_param("s", $patient['patient_id']);
+$stmt->bind_param($types, ...$params);
 $stmt->execute();
 $studies = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
+
+// Get all clinic locations for filter dropdown
+$clinicsStmt = $mysqli->query("SELECT DISTINCT clinic_location FROM cached_studies WHERE clinic_location IS NOT NULL ORDER BY clinic_location");
+$allClinics = $clinicsStmt->fetch_all(MYSQLI_ASSOC);
+$clinicsStmt->close();
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
@@ -217,6 +261,54 @@ $stmt->close();
             </div>
         </div>
 
+        <!-- Filters -->
+        <div class="card mb-3" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="card-body">
+                <form method="GET" action="" class="row g-3">
+                    <input type="hidden" name="patient_id" value="<?= htmlspecialchars($patientOrthancId) ?>">
+                    
+                    <div class="col-md-4">
+                        <label class="form-label text-light">
+                            <i class="bi bi-funnel me-1"></i> Filter by Accession Number
+                        </label>
+                        <input type="text" 
+                               name="accession" 
+                               class="form-control bg-secondary text-light" 
+                               placeholder="Enter accession number..."
+                               value="<?= htmlspecialchars($accessionFilter) ?>">
+                    </div>
+                    
+                    <?php if ($isMultiClinicMode && count($allClinics) > 1): ?>
+                    <div class="col-md-4">
+                        <label class="form-label text-light">
+                            <i class="bi bi-geo-alt me-1"></i> Filter by Clinic
+                        </label>
+                        <select name="clinic" class="form-select bg-secondary text-light">
+                            <option value="">All Clinics</option>
+                            <?php foreach ($allClinics as $clinic): ?>
+                                <option value="<?= htmlspecialchars($clinic['clinic_location']) ?>"
+                                        <?= $clinicFilter === $clinic['clinic_location'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($clinic['clinic_location']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <div class="col-md-4 d-flex align-items-end gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-search"></i> Apply Filters
+                        </button>
+                        <?php if (!empty($accessionFilter) || !empty($clinicFilter)): ?>
+                        <a href="?patient_id=<?= urlencode($patientOrthancId) ?>" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle"></i> Clear
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- Studies List -->
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h4 class="text-white">
@@ -243,6 +335,9 @@ $stmt->close();
                             <th>Study Description</th>
                             <th>Study Date</th>
                             <th>Accession #</th>
+                            <?php if ($isMultiClinicMode): ?>
+                            <th>Clinic Location</th>
+                            <?php endif; ?>
                             <th>Modalities</th>
                             <th class="text-center">Actions</th>
                         </tr>
@@ -266,6 +361,18 @@ $stmt->close();
                                     <?php endif; ?>
                                 </td>
                                 <td><?= htmlspecialchars($study['accession_number'] ?: '-') ?></td>
+                                <?php if ($isMultiClinicMode): ?>
+                                <td>
+                                    <?php if ($study['clinic_location']): ?>
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-geo-alt-fill"></i>
+                                            <?= htmlspecialchars($study['clinic_location']) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <?php endif; ?>
                                 <td>
                                     <?php if ($study['modalities']): ?>
                                         <?php foreach (explode(',', $study['modalities']) as $modality): ?>

@@ -7,6 +7,7 @@
     <title>Patients - Accurate Viewer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="../css/dark-theme-fixes.css" rel="stylesheet">
     <style>
         :root {
             --primary-gradient-start: #0a0e27;
@@ -286,6 +287,7 @@
                 opacity: 0;
                 transform: translateY(10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -575,20 +577,20 @@
 
         function createPatientRow(patient) {
             const initials = getInitials(patient.patient_name);
-            
+
             // Fix gender display - handle both 'patient_sex' and 'sex' field names
             const sex = patient.patient_sex || patient.sex || '';
             const gender = sex === 'M' ? 'Male' : sex === 'F' ? 'Female' : sex ? 'Other' : '';
             const genderClass = sex === 'M' ? 'gender-male' : sex === 'F' ? 'gender-female' : 'gender-other';
             const genderIcon = sex === 'M' ? 'bi-gender-male' : sex === 'F' ? 'bi-gender-female' : 'bi-gender-ambiguous';
-            
+
             // Calculate age - use age from API or calculate from birth_date
             let ageDisplay = 'N/A';
             if (patient.age !== null && patient.age !== undefined) {
                 ageDisplay = patient.age + ' yrs';
             } else if (patient.birth_date) {
                 // Calculate from birth_date if age not provided
-                const birthDate = patient.birth_date.length === 8 
+                const birthDate = patient.birth_date.length === 8
                     ? new Date(patient.birth_date.substr(0, 4), parseInt(patient.birth_date.substr(4, 2)) - 1, patient.birth_date.substr(6, 2))
                     : new Date(patient.birth_date);
                 if (!isNaN(birthDate.getTime())) {
@@ -660,15 +662,15 @@
                     'Content-Type': 'application/json'
                 }
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.data.triggered) {
-                    console.log('Auto-backup triggered:', data.data.message);
-                }
-            })
-            .catch(error => {
-                console.log('Auto-backup check (silent):', error.message);
-            });
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data.triggered) {
+                        console.log('Auto-backup triggered:', data.data.message);
+                    }
+                })
+                .catch(error => {
+                    console.log('Auto-backup check (silent):', error.message);
+                });
         }
 
         // Check backup status every 30 minutes (1800000 ms)

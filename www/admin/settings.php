@@ -162,9 +162,14 @@ $detectedIP = getLocalIPAddress();
                 <i class="bi bi-gear-fill text-primary"></i>
                 System Settings
             </h2>
-            <button class="btn btn-success" id="saveAllBtn">
-                <i class="bi bi-check-circle"></i> Save General Settings
-            </button>
+            <div class="d-flex gap-2">
+                <a href="<?= BASE_PATH ?>/admin/user-management.php" class="btn btn-outline-info">
+                    <i class="bi bi-people"></i> User Management
+                </a>
+                <button class="btn btn-success" id="saveAllBtn">
+                    <i class="bi bi-check-circle"></i> Save General Settings
+                </button>
+            </div>
         </div>
 
         <!-- Save Indicator -->
@@ -507,6 +512,87 @@ $detectedIP = getLocalIPAddress();
                     <div class="alert alert-success">
                         <i class="bi bi-check-circle-fill me-2"></i>
                         <strong>Tip:</strong> These settings ensure consistent professional prints every time without having to reconfigure.
+                    </div>
+                </form>
+            </div>
+
+            <!-- Clinic Settings (Multi-Clinic System) -->
+            <div class="settings-card" id="clinic-settings">
+                <div class="category-header d-flex justify-content-between">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-geo-alt category-icon"></i>
+                        <h4 class="mb-0 text-white">Clinic Location Settings</h4>
+                    </div>
+                    <button type="button" class="btn btn-success btn-sm" id="saveClinicSettingsBtn">
+                        <i class="bi bi-check-circle"></i> Save Clinic Settings
+                    </button>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Multi-Clinic Support:</strong> Configure this installation's clinic location and enable multi-clinic mode to view studies from all your clinic locations.
+                </div>
+
+                <form id="clinicSettingsForm">
+                    <!-- Clinic Location Name -->
+                    <div class="mb-4">
+                        <h6 class="text-primary mb-3">
+                            <i class="bi bi-building me-2"></i>Current Clinic Location
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-8 mb-3">
+                                <label class="form-label text-light">Clinic Location Name</label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="clinicLocationName" 
+                                       name="clinic_location_name" 
+                                       placeholder="e.g., Main Clinic, Branch X, Location Y" 
+                                       required>
+                                <small class="form-text text-muted">
+                                    This name will be associated with all studies imported at this location
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Multi-Clinic Mode -->
+                    <div class="mb-4">
+                        <h6 class="text-primary mb-3">
+                            <i class="bi bi-diagram-3 me-2"></i>Multi-Clinic Mode
+                        </h6>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" 
+                                   type="checkbox" 
+                                   id="multiClinicMode" 
+                                   name="multi_clinic_mode">
+                            <label class="form-check-label text-light" for="multiClinicMode">
+                                Enable Multi-Clinic View
+                            </label>
+                        </div>
+                        <div class="alert alert-warning" id="multiClinicInfo" style="display: none;">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <strong>Multi-Clinic Mode Enabled:</strong> 
+                            Studies from all clinic locations will be visible. You can filter by clinic location in the patient studies view.
+                        </div>
+                        <div class="card bg-secondary" style="display: none;" id="multiClinicHelp">
+                            <div class="card-body">
+                                <h6 class="text-info">
+                                    <i class="bi bi-question-circle me-2"></i>How Multi-Clinic Mode Works
+                                </h6>
+                                <ul class="mb-0 small">
+                                    <li>Each clinic installation should have its own unique location name</li>
+                                    <li>When studies are imported, they're tagged with the current clinic location</li>
+                                    <li>With multi-clinic mode ON, you can view studies from all clinics</li>
+                                    <li>With multi-clinic mode OFF, you only see studies from this clinic</li>
+                                    <li>Use the clinic filter in patient studies to filter by specific locations</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <strong>Tip:</strong> If you own multiple clinics, enable multi-clinic mode to manage all your studies from one dashboard. If you have only one clinic, leave it disabled.
                     </div>
                 </form>
             </div>
@@ -1518,6 +1604,72 @@ $detectedIP = getLocalIPAddress();
                 btn.innerHTML = '<i class="bi bi-save"></i> Save & Apply Configuration';
             }
         }
+
+        // --- Clinic Settings Management ---
+        async function loadClinicSettings() {
+            try {
+                const response = await fetch(`${basePath}/api/settings/clinic-settings.php`);
+                const data = await response.json();
+                
+                if (data.success && data.settings) {
+                    document.getElementById('clinicLocationName').value = data.settings.clinic_location_name || 'Main Clinic';
+                    document.getElementById('multiClinicMode').checked = data.settings.multi_clinic_mode || false;
+                    
+                    // Show/hide multi-clinic info based on checkbox
+                    toggleMultiClinicInfo();
+                }
+            } catch (error) {
+                console.error('Error loading clinic settings:', error);
+            }
+        }
+
+        async function saveClinicSettings() {
+            const btn = document.getElementById('saveClinicSettingsBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+            
+            try {
+                const clinicLocationName = document.getElementById('clinicLocationName').value;
+                const multiClinicMode = document.getElementById('multiClinicMode').checked;
+                
+                const response = await fetch(`${basePath}/api/settings/clinic-settings.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        clinic_location_name: clinicLocationName,
+                        multi_clinic_mode: multiClinicMode
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess('Clinic settings saved successfully!');
+                    await loadClinicSettings(); // Reload to confirm
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error saving clinic settings: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> Save Clinic Settings';
+            }
+        }
+
+        function toggleMultiClinicInfo() {
+            const isEnabled = document.getElementById('multiClinicMode').checked;
+            document.getElementById('multiClinicInfo').style.display = isEnabled ? 'block' : 'none';
+            document.getElementById('multiClinicHelp').style.display = isEnabled ? 'block' : 'none';
+        }
+
+        // Add event listeners for clinic settings
+        document.addEventListener('DOMContentLoaded', () => {
+            loadClinicSettings();
+            
+            document.getElementById('saveClinicSettingsBtn')?.addEventListener('click', saveClinicSettings);
+            document.getElementById('multiClinicMode')?.addEventListener('change', toggleMultiClinicInfo);
+        });
     </script>
 </body>
 </html>
