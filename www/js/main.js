@@ -1989,6 +1989,38 @@ window.DICOM_VIEWER.resetActiveViewport = function () {
     }
 
     try {
+        // === PRIORITY: DEACTIVATE ALL TOOLS FIRST ===
+        const allTools = ['Pan', 'Zoom', 'Wwwc', 'Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'];
+        allTools.forEach(toolName => {
+            try {
+                // Cancel any in-progress drawing by setting to disabled then passive
+                cornerstoneTools.setToolDisabled(toolName);
+                // Set annotation tools to passive so existing annotations stay visible
+                if (['Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'].includes(toolName)) {
+                    cornerstoneTools.setToolPassive(toolName);
+                }
+                console.log(`Deactivated tool: ${toolName}`);
+            } catch (e) {
+                // Tool might not exist
+            }
+        });
+
+        // Reset active tool in state
+        state.activeTool = null;
+        console.log('Reset active tool state');
+
+        // Reset all tool button UI
+        const toolsPanel = document.getElementById('tools-panel') || document;
+        const toolButtons = toolsPanel.querySelectorAll('.tool-btn[data-tool]');
+        toolButtons.forEach(btn => {
+            btn.classList.remove('btn-primary', 'active');
+            btn.classList.add('btn-secondary');
+            btn.removeAttribute('aria-pressed');
+            btn.style.transform = '';
+        });
+        console.log('Reset tool button UI');
+
+        // === NOW CLEAR TOOL STATE ===
         const enabledElement = cornerstone.getEnabledElement(targetViewport);
         if (!enabledElement || !enabledElement.image) {
             console.error('Viewport does not have an enabled image');
@@ -2030,6 +2062,11 @@ window.DICOM_VIEWER.resetActiveViewport = function () {
             }
         });
 
+        // Clear text annotations too
+        const textAnnotations = targetViewport.querySelectorAll('.text-annotation');
+        textAnnotations.forEach(ann => ann.remove());
+        console.log(`Cleared ${textAnnotations.length} text annotations`);
+
         // Reset Cornerstone viewport (zoom, pan, W/L to default)
         cornerstone.reset(targetViewport);
 
@@ -2051,7 +2088,7 @@ window.DICOM_VIEWER.resetActiveViewport = function () {
         if (sharpenSlider) sharpenSlider.value = 0;
 
         window.DICOM_VIEWER.updateViewportInfo();
-        window.DICOM_VIEWER.showAISuggestion('Active viewport reset: zoom, pan, W/L, and annotations cleared');
+        window.DICOM_VIEWER.showAISuggestion('Reset complete: All tools deactivated, annotations cleared, zoom/pan/W-L restored');
 
     } catch (error) {
         console.error('Error resetting viewport:', error);
