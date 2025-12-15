@@ -1119,11 +1119,11 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                 return { rows, cols };
             }
 
-            // Insert All Images
+            // Insert All Images - respects current layout, uses page navigator for overflow
             insertAllBtn.addEventListener('click', async function() {
-                console.log('Insert All clicked');
+                console.log('Insert All clicked - respecting current layout');
 
-                // Get images from STATE (has correct database IDs)
+                // Get images from STATE
                 const images = window.DICOM_VIEWER.STATE.currentSeriesImages;
                 if (!images || images.length === 0) {
                     alert('No images available. Please load a study first.');
@@ -1133,102 +1133,71 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                 const imageCount = images.length;
                 console.log(`Found ${imageCount} images in STATE`);
 
-                // Calculate optimal grid
-                const grid = calculateOptimalGrid(imageCount);
-                console.log(`Calculated optimal grid: ${grid.rows}×${grid.cols} for ${imageCount} images`);
+                // Use CURRENT viewports (don't recalculate layout)
+                const viewportElements = document.querySelectorAll('.viewport');
+                const viewportCount = viewportElements.length;
+                console.log(`Current layout has ${viewportCount} viewports`);
 
-                // Create custom grid layout
-                const layoutKey = `custom-${grid.rows}x${grid.cols}`;
-                const total = grid.rows * grid.cols;
-
-                const viewportManager = window.DICOM_VIEWER.MANAGERS.viewportManager;
-                if (!viewportManager) {
-                    console.error('Viewport manager not initialized');
+                if (viewportCount === 0) {
+                    alert('No viewports available. Please select a layout first.');
                     return;
                 }
 
-                // Generate viewport configuration
-                const viewports = [];
-                for (let i = 0; i < total; i++) {
-                    viewports.push(`viewport-${i + 1}`);
-                }
-
-                // Register the custom layout
-                viewportManager.layouts[layoutKey] = {
-                    rows: grid.rows,
-                    cols: grid.cols,
-                    viewports: viewports
-                };
-
-                // Create viewports
-                viewportManager.createViewports(layoutKey);
-
-                // Apply CSS Grid styling
-                const container = document.getElementById('viewport-container');
-                if (container) {
-                    container.style.display = 'grid';
-                    container.style.gridTemplateRows = `repeat(${grid.rows}, 1fr)`;
-                    container.style.gridTemplateColumns = `repeat(${grid.cols}, 1fr)`;
-                    container.style.gap = '2px';
-                    container.style.width = '100%';
-                    container.style.height = '100%';
-                }
-
-                // Wait for viewports to be created, then load images
-                setTimeout(async () => {
-                    const viewportElements = document.querySelectorAll('.viewport');
-                    console.log(`Created ${viewportElements.length} viewports`);
-
-                    if (viewportElements.length === 0) {
-                        console.error('No viewports found after creation');
-                        return;
-                    }
-
-                    // Enable cornerstone on all viewports first
-                    viewportElements.forEach(viewport => {
+                // Enable cornerstone on all viewports first
+                viewportElements.forEach(viewport => {
+                    try {
+                        cornerstone.getEnabledElement(viewport);
+                    } catch (e) {
                         try {
-                            if (!cornerstone.getEnabledElement(viewport)) {
-                                cornerstone.enable(viewport);
-                                console.log(`Enabled cornerstone on ${viewport.id}`);
-                            }
-                        } catch (e) {
-                            console.warn(`Viewport ${viewport.id} already enabled or error:`, e);
+                            cornerstone.enable(viewport);
+                        } catch (e2) {
+                            console.warn(`Error enabling viewport:`, e2);
                         }
-                    });
+                    }
+                });
 
-                    // Wait a bit for cornerstone to initialize
-                    await new Promise(resolve => setTimeout(resolve, 200));
+                // Wait a bit for cornerstone to initialize
+                await new Promise(resolve => setTimeout(resolve, 100));
 
-                    // Load images into viewports using correct database IDs from STATE
-                    for (let i = 0; i < Math.min(imageCount, viewportElements.length); i++) {
-                        const viewport = viewportElements[i];
-                        const image = images[i];
+                // Load only the first page of images into viewports
+                const imagesToLoad = Math.min(imageCount, viewportCount);
+                
+                for (let i = 0; i < imagesToLoad; i++) {
+                    const viewport = viewportElements[i];
+                    const image = images[i];
 
-                        if (viewport && image) {
-                            // Get the correct database ID from STATE
-                            const fileId = image.id;
+                    if (viewport && image) {
+                        const fileId = image.id || image.orthancInstanceId || image.instanceId;
 
-                            if (fileId) {
-                                console.log(`Loading image ${i + 1}/${imageCount} (DB ID: ${fileId}) into viewport ${viewport.id}`);
-                                try {
-                                    await window.DICOM_VIEWER.loadImageInViewport(viewport, fileId);
-
-                                    // Fit to window after loading
-                                    try {
-                                        cornerstone.fitToWindow(viewport);
-                                        console.log(`Fitted image ${fileId} to viewport ${viewport.id}`);
-                                    } catch (e) {
-                                        console.warn('Error fitting viewport:', e);
-                                    }
-                                } catch (error) {
-                                    console.error(`Error loading image ${fileId}:`, error);
-                                }
+                        if (fileId) {
+                            console.log(`Loading image ${i + 1}/${imagesToLoad} into viewport ${viewport.id}`);
+                            try {
+                                await window.DICOM_VIEWER.loadImageInViewport(viewport, fileId);
+                                cornerstone.fitToWindow(viewport);
+                            } catch (error) {
+                                console.error(`Error loading image ${fileId}:`, error);
                             }
                         }
                     }
+                }
 
-                    console.log(`Loaded ${Math.min(imageCount, viewportElements.length)} images successfully`);
-                }, 1000);
+                // Trigger page navigator for remaining images
+                setTimeout(() => {
+                    if (window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.pageNavigator) {
+                        window.DICOM_VIEWER.MANAGERS.pageNavigator.refresh();
+                    }
+                    
+                    if (imageCount > viewportCount) {
+                        const totalPages = Math.ceil(imageCount / viewportCount);
+                        window.DICOM_VIEWER.showAISuggestion(
+                            `Page 1 of ${totalPages} (${imagesToLoad} images). Use Page Navigator or PageUp/PageDown for all ${imageCount} images.`
+                        );
+                    } else {
+                        window.DICOM_VIEWER.showAISuggestion(`Loaded all ${imagesToLoad} images.`);
+                    }
+                }, 300);
+
+                console.log(`Loaded ${imagesToLoad} of ${imageCount} images`);
             });
 
             // Clear All Viewports
