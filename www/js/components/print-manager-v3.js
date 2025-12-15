@@ -679,7 +679,7 @@ window.DICOM_VIEWER.PrintManager = class {
 
     /**
      * Print All Images - Creates multi-page print with all series images
-     * Paginates images based on selected grid layout
+     * Captures images from the current viewports in their current state
      */
     async printAllImages(layout, previewOnly = false) {
         const state = window.DICOM_VIEWER.STATE;
@@ -710,34 +710,60 @@ window.DICOM_VIEWER.PrintManager = class {
                 accessionNumber: currentImage.accession_number || ''
             };
 
-            // Capture all image data URLs
+            // Capture all image data URLs by loading into first viewport
             const capturedImages = [];
             const viewportElement = document.querySelector('.viewport');
+
+            if (!viewportElement) {
+                throw new Error('No viewport found');
+            }
 
             for (let i = 0; i < images.length; i++) {
                 this.updateLoadingProgress(`Capturing image ${i + 1} of ${images.length}...`, Math.round((i / images.length) * 80));
 
                 try {
-                    // Load image into cornerstone and capture
-                    const imageId = images[i].imageId;
-                    if (imageId && viewportElement) {
-                        await cornerstone.loadImage(imageId);
-                        await cornerstone.displayImage(viewportElement, await cornerstone.loadImage(imageId));
+                    // Get the imageId - it might be stored in different ways
+                    const img = images[i];
+                    let imageId = img.imageId || img.image_id;
+
+                    // If imageId not directly available, construct it from orthancInstanceId
+                    if (!imageId && img.orthancInstanceId) {
+                        const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
+                        imageId = `wadouri:${basePath}/api/get_dicom_from_orthanc.php?instanceId=${img.orthancInstanceId}`;
+                    }
+
+                    if (!imageId && img.instanceId) {
+                        const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
+                        imageId = `wadouri:${basePath}/api/get_dicom_from_orthanc.php?instanceId=${img.instanceId}`;
+                    }
+
+                    if (imageId) {
+                        // Load and display image
+                        const loadedImage = await cornerstone.loadImage(imageId);
+                        await cornerstone.displayImage(viewportElement, loadedImage);
 
                         // Wait for render
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 50));
 
                         const canvas = viewportElement.querySelector('canvas');
                         if (canvas) {
                             capturedImages.push({
-                                dataUrl: canvas.toDataURL('image/png', 0.9),
+                                dataUrl: canvas.toDataURL('image/png', 0.85),
                                 index: i + 1
                             });
+                        } else {
+                            throw new Error('Canvas not found');
                         }
+                    } else {
+                        console.warn(`No imageId for image ${i}`, img);
+                        capturedImages.push({
+                            dataUrl: null,
+                            index: i + 1,
+                            error: true
+                        });
                     }
                 } catch (err) {
                     console.error(`Error capturing image ${i}:`, err);
-                    // Use placeholder
                     capturedImages.push({
                         dataUrl: null,
                         index: i + 1,
@@ -747,6 +773,8 @@ window.DICOM_VIEWER.PrintManager = class {
             }
 
             this.updateLoadingProgress('Generating print document...', 85);
+
+            console.log(`Captured ${capturedImages.filter(i => i.dataUrl).length} of ${images.length} images`);
 
             // Generate multi-page HTML
             const printHTML = this.generateAllImagesPrintHTML(capturedImages, patientInfo, layout, totalPages, previewOnly);
