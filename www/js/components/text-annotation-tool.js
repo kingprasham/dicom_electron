@@ -8,7 +8,7 @@ window.DICOM_VIEWER = window.DICOM_VIEWER || {};
 window.DICOM_VIEWER.TextAnnotationTool = class {
     constructor() {
         this.isActive = false;
-        this.annotations = new Map(); // viewport -> annotations array
+        this.annotationsByImageId = new Map(); // imageId -> annotations array (persistent storage)
         this.selectedAnnotation = null;
         this.isDragging = false;
         this.dragOffset = { x: 0, y: 0 };
@@ -611,16 +611,30 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
     }
 
     /**
-     * Add annotation to viewport
+     * Add annotation to viewport (tied to the current image in that viewport)
      */
     addAnnotation(viewport, x, y, text) {
+        // Get the current image ID for this viewport
+        const imageId = this.getViewportImageId(viewport);
+        if (!imageId) {
+            console.warn('Cannot add annotation: no image loaded in viewport');
+            return;
+        }
+
+        const annotationId = Date.now().toString();
         const annotation = document.createElement('div');
         annotation.className = 'text-annotation';
-        annotation.dataset.id = Date.now().toString();
+        annotation.dataset.id = annotationId;
+        annotation.dataset.imageId = imageId;
+
+        // Store position as percentage for resolution independence
+        const viewportRect = viewport.getBoundingClientRect();
+        const xPercent = (x / viewportRect.width) * 100;
+        const yPercent = (y / viewportRect.height) * 100;
 
         annotation.style.cssText = `
-            left: ${x}px;
-            top: ${y}px;
+            left: ${xPercent}%;
+            top: ${yPercent}%;
         `;
 
         annotation.innerHTML = `
@@ -639,18 +653,91 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
 
         viewport.appendChild(annotation);
 
-        // Store annotation reference
-        if (!this.annotations.has(viewport)) {
-            this.annotations.set(viewport, []);
+        // Store annotation data by image ID
+        if (!this.annotationsByImageId.has(imageId)) {
+            this.annotationsByImageId.set(imageId, []);
         }
-        this.annotations.get(viewport).push({
-            id: annotation.dataset.id,
-            element: annotation,
+        this.annotationsByImageId.get(imageId).push({
+            id: annotationId,
             text,
+            xPercent,
+            yPercent,
             settings: { ...this.settings }
         });
 
+        console.log(`Annotation added for image ${imageId}:`, text);
         window.DICOM_VIEWER.showAISuggestion(`Text annotation added: "${text}"`);
+    }
+
+    /**
+     * Get the image ID currently displayed in a viewport
+     */
+    getViewportImageId(viewport) {
+        try {
+            const enabledElement = cornerstone.getEnabledElement(viewport);
+            return enabledElement?.image?.imageId || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * Restore annotations for the current image in a viewport
+     */
+    restoreAnnotationsForViewport(viewport) {
+        const imageId = this.getViewportImageId(viewport);
+        if (!imageId) return;
+
+        // Clear existing DOM annotations in this viewport
+        viewport.querySelectorAll('.text-annotation').forEach(el => el.remove());
+
+        // Restore annotations for this image
+        const annotations = this.annotationsByImageId.get(imageId);
+        if (!annotations || annotations.length === 0) return;
+
+        annotations.forEach(ann => {
+            const annotation = document.createElement('div');
+            annotation.className = 'text-annotation';
+            annotation.dataset.id = ann.id;
+            annotation.dataset.imageId = imageId;
+
+            annotation.style.cssText = `
+                left: ${ann.xPercent}%;
+                top: ${ann.yPercent}%;
+            `;
+
+            annotation.innerHTML = `
+                <div class="text-annotation-content" style="
+                    font-size: ${ann.settings.fontSize}px;
+                    color: ${ann.settings.fontColor};
+                    font-family: ${ann.settings.fontFamily};
+                    background: ${ann.settings.backgroundColor};
+                    padding: ${ann.settings.padding}px;
+                ">${this.escapeHtml(ann.text)}</div>
+                <button class="text-annotation-delete" title="Delete">&times;</button>
+            `;
+
+            this.setupAnnotationListeners(annotation, viewport);
+            viewport.appendChild(annotation);
+        });
+
+        console.log(`Restored ${annotations.length} annotations for image ${imageId}`);
+    }
+
+    /**
+     * Clear DOM annotations from viewport (but keep stored data)
+     */
+    clearViewportAnnotationDOM(viewport) {
+        viewport.querySelectorAll('.text-annotation').forEach(el => el.remove());
+    }
+
+    /**
+     * Called when page changes - restore annotations for new images
+     */
+    onPageChange() {
+        document.querySelectorAll('.viewport').forEach(viewport => {
+            this.restoreAnnotationsForViewport(viewport);
+        });
     }
 
     /**
@@ -710,14 +797,34 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
             newX = Math.max(0, Math.min(newX, viewportRect.width - annotation.offsetWidth));
             newY = Math.max(0, Math.min(newY, viewportRect.height - annotation.offsetHeight));
 
-            annotation.style.left = `${newX}px`;
-            annotation.style.top = `${newY}px`;
+            // Convert to percentage
+            const xPercent = (newX / viewportRect.width) * 100;
+            const yPercent = (newY / viewportRect.height) * 100;
+
+            annotation.style.left = `${xPercent}%`;
+            annotation.style.top = `${yPercent}%`;
         };
 
         const onMouseUp = () => {
             this.isDragging = false;
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
+
+            // Update stored position
+            const imageId = annotation.dataset.imageId;
+            const annotationId = annotation.dataset.id;
+            if (imageId && this.annotationsByImageId.has(imageId)) {
+                const annotations = this.annotationsByImageId.get(imageId);
+                const ann = annotations.find(a => a.id === annotationId);
+                if (ann) {
+                    const viewport = annotation.parentElement;
+                    const viewportRect = viewport.getBoundingClientRect();
+                    const left = parseFloat(annotation.style.left);
+                    const top = parseFloat(annotation.style.top);
+                    ann.xPercent = left;
+                    ann.yPercent = top;
+                }
+            }
         };
 
         document.addEventListener('mousemove', onMouseMove);
@@ -783,12 +890,15 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
      * Delete annotation
      */
     deleteAnnotation(annotation, viewport) {
+        const imageId = annotation.dataset.imageId;
+        const annotationId = annotation.dataset.id;
+
         annotation.remove();
 
-        // Remove from stored annotations
-        if (this.annotations.has(viewport)) {
-            const annotations = this.annotations.get(viewport);
-            const index = annotations.findIndex(a => a.id === annotation.dataset.id);
+        // Remove from stored annotations by image ID
+        if (imageId && this.annotationsByImageId.has(imageId)) {
+            const annotations = this.annotationsByImageId.get(imageId);
+            const index = annotations.findIndex(a => a.id === annotationId);
             if (index > -1) {
                 annotations.splice(index, 1);
             }

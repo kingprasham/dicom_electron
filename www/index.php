@@ -557,7 +557,6 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                             <button type="button" class="btn btn-outline-success" id="mprAxial" title="Axial">Axial</button>
                             <button type="button" class="btn btn-outline-success" id="mprSagittal" title="Sagittal">Sagittal</button>
                             <button type="button" class="btn btn-outline-success" id="mprCoronal" title="Coronal">Coronal</button>
-                            <button type="button" class="btn btn-outline-success" id="mprAll" title="All Views">All</button>
                         </div>
 
                         <!-- Insert/Clear/Delete/Select buttons -->

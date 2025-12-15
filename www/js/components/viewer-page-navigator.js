@@ -274,6 +274,11 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
                         // Add image number overlay
                         this.addImageNumberOverlay(viewport, startIndex + i + 1);
+
+                        // Restore text annotations for this image
+                        if (window.DICOM_VIEWER.MANAGERS?.textAnnotationTool) {
+                            window.DICOM_VIEWER.MANAGERS.textAnnotationTool.restoreAnnotationsForViewport(viewport);
+                        }
                     }
                 } catch (err) {
                     console.error(`Error loading image ${startIndex + i}:`, err);

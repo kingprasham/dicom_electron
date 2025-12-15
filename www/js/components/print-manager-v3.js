@@ -162,23 +162,78 @@ window.DICOM_VIEWER.PrintManager = class {
 
                 if (!hasImage) continue;
 
-                // Check if viewport has text annotations
-                const textAnnotations = viewport.querySelectorAll('.text-annotation');
+                // Get the DICOM canvas
                 let dataUrl;
+                const textAnnotations = viewport.querySelectorAll('.text-annotation');
 
-                if (textAnnotations.length > 0 && typeof html2canvas !== 'undefined') {
-                    // Use html2canvas to capture viewport with annotations
+                if (textAnnotations.length > 0) {
+                    // Create a composite canvas with annotations drawn on it
                     try {
-                        const captureCanvas = await html2canvas(viewport, {
-                            backgroundColor: '#000',
-                            scale: this.printSettings.quality === 'high' ? 2 : 1,
-                            logging: false,
-                            useCORS: true,
-                            allowTaint: true
+                        const compositeCanvas = document.createElement('canvas');
+                        const viewportRect = viewport.getBoundingClientRect();
+                        const scale = this.printSettings.quality === 'high' ? 2 : 1;
+
+                        compositeCanvas.width = canvas.width * scale;
+                        compositeCanvas.height = canvas.height * scale;
+
+                        const ctx = compositeCanvas.getContext('2d');
+                        ctx.scale(scale, scale);
+
+                        // Draw the DICOM image first
+                        ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height);
+
+                        // Calculate scale factor between canvas and viewport
+                        const scaleX = canvas.width / viewportRect.width;
+                        const scaleY = canvas.height / viewportRect.height;
+
+                        // Draw each text annotation
+                        textAnnotations.forEach(ann => {
+                            const contentEl = ann.querySelector('.text-annotation-content');
+                            if (!contentEl) return;
+
+                            const text = contentEl.textContent;
+                            const styles = window.getComputedStyle(contentEl);
+
+                            // Get position (already in percentage)
+                            const leftPercent = parseFloat(ann.style.left) || 0;
+                            const topPercent = parseFloat(ann.style.top) || 0;
+
+                            const x = (leftPercent / 100) * canvas.width;
+                            const y = (topPercent / 100) * canvas.height;
+
+                            // Get font properties
+                            const fontSize = parseInt(styles.fontSize) || 16;
+                            const fontColor = styles.color || '#FFFF00';
+                            const bgColor = styles.backgroundColor || 'rgba(0, 0, 0, 0.6)';
+                            const padding = parseInt(styles.padding) || 6;
+
+                            // Set font
+                            ctx.font = `${fontSize * scaleX}px Arial, sans-serif`;
+
+                            // Measure text
+                            const textMetrics = ctx.measureText(text);
+                            const textWidth = textMetrics.width;
+                            const textHeight = fontSize * scaleX;
+
+                            // Draw background
+                            ctx.fillStyle = bgColor;
+                            ctx.fillRect(
+                                x,
+                                y,
+                                textWidth + (padding * 2 * scaleX),
+                                textHeight + (padding * 2 * scaleY)
+                            );
+
+                            // Draw text
+                            ctx.fillStyle = fontColor;
+                            ctx.textBaseline = 'top';
+                            ctx.fillText(text, x + (padding * scaleX), y + (padding * scaleY));
                         });
-                        dataUrl = captureCanvas.toDataURL('image/png', this.printSettings.quality === 'high' ? 1.0 : 0.8);
-                    } catch (html2canvasError) {
-                        console.warn('html2canvas failed, falling back to canvas capture:', html2canvasError);
+
+                        dataUrl = compositeCanvas.toDataURL('image/png', this.printSettings.quality === 'high' ? 1.0 : 0.8);
+                        console.log('Captured viewport with', textAnnotations.length, 'text annotations');
+                    } catch (compositeError) {
+                        console.warn('Composite canvas failed, falling back to standard capture:', compositeError);
                         dataUrl = canvas.toDataURL('image/png', this.printSettings.quality === 'high' ? 1.0 : 0.8);
                     }
                 } else {
