@@ -265,7 +265,7 @@ window.DICOM_VIEWER.PrintManager = class {
                                         <input type="radio" name="printType" value="allImages" hidden>
                                         <i class="bi bi-images fs-3 text-warning mb-2"></i>
                                         <h6 class="mb-1">All Images</h6>
-                                        <small class="text-muted">Print all ${state.currentSeriesImages?.length || 0} images<br>in selected grid layout</small>
+                                        <small class="text-muted">Print all ${state.currentSeriesImages?.length || 0} images<br>using current layout</small>
                                     </div>
                                 </div>
                                 <div class="col-md-4">
@@ -278,40 +278,11 @@ window.DICOM_VIEWER.PrintManager = class {
                                 </div>
                             </div>
 
-                            <!-- Layout Selector for All Images (hidden by default) -->
+                            <!-- Layout Selector removed - auto-detects current viewport layout -->
                             <div id="allImagesOptions" style="display: none;">
-                                <h6 class="text-primary mb-3">
-                                    <i class="bi bi-grid me-2"></i>Select Grid Layout
-                                </h6>
-                                <div class="row g-2 mb-4">
-                                    <div class="col-3">
-                                        <div class="layout-option selected" data-layout="2x2">
-                                            <i class="bi bi-grid fs-4"></i><br><small>2x2</small>
-                                            <div class="text-muted small">4/page</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-3">
-                                        <div class="layout-option" data-layout="3x3">
-                                            <i class="bi bi-grid-3x3 fs-4"></i><br><small>3x3</small>
-                                            <div class="text-muted small">9/page</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-3">
-                                        <div class="layout-option" data-layout="4x4">
-                                            <i class="bi bi-grid-3x3-gap fs-4"></i><br><small>4x4</small>
-                                            <div class="text-muted small">16/page</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-3">
-                                        <div class="layout-option" data-layout="5x5">
-                                            <i class="bi bi-grid-fill fs-4"></i><br><small>5x5</small>
-                                            <div class="text-muted small">25/page</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="alert alert-info small mb-3">
-                                    <i class="bi bi-info-circle me-2"></i>
-                                    <span id="pageCalculation">Loading...</span>
+                                <div class="alert alert-success small mb-3">
+                                    <i class="bi bi-check-circle me-2"></i>
+                                    <span id="pageCalculation">Will use your current viewport layout automatically</span>
                                 </div>
                             </div>
 
@@ -625,8 +596,19 @@ window.DICOM_VIEWER.PrintManager = class {
             if (printType === 'viewport') {
                 await this.printViewport(previewOnly);
             } else if (printType === 'allImages') {
-                const selectedLayout = document.querySelector('.layout-option.selected')?.dataset.layout || '3x3';
-                await this.printAllImages(selectedLayout, previewOnly);
+                // Auto-detect current layout from viewport-container CSS grid
+                const viewportContainer = document.getElementById('viewport-container');
+                let detectedLayout = '2x2'; // Default
+
+                if (viewportContainer) {
+                    const containerStyles = window.getComputedStyle(viewportContainer);
+                    const gridCols = containerStyles.gridTemplateColumns.split(' ').filter(s => s.trim()).length || 2;
+                    const gridRows = containerStyles.gridTemplateRows.split(' ').filter(s => s.trim()).length || 2;
+                    detectedLayout = `${gridRows}x${gridCols}`;
+                    console.log(`Auto-detected layout: ${detectedLayout}`);
+                }
+
+                await this.printAllImages(detectedLayout, previewOnly);
             } else if (printType === 'report') {
                 const reportId = document.querySelector('[data-type="report"]')?.dataset.reportId;
                 if (reportId) {
