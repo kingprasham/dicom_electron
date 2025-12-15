@@ -615,6 +615,9 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     <div class="col"><button data-tool="Probe"
                             class="btn btn-secondary w-100 tool-btn d-flex flex-column justify-content-center align-items-center"><i
                                 class="bi bi-eyedropper"></i><span class="small">Probe</span></button></div>
+                    <div class="col"><button id="textAnnotationBtn" data-tool="TextAnnotation"
+                            class="btn btn-secondary w-100 tool-btn d-flex flex-column justify-content-center align-items-center" title="Add Text Annotation (T)"><i
+                                class="bi bi-fonts"></i><span class="small">Text</span></button></div>
                     <div class="col"><button id="resetBtn"
                             class="btn btn-secondary w-100 tool-btn d-flex flex-column justify-content-center align-items-center"><i
                                 class="bi bi-arrow-counterclockwise"></i><span class="small">Reset</span></button></div>

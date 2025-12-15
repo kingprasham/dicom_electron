@@ -33,37 +33,16 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
     }
 
     /**
-     * Create tool button in the toolbar
+     * Setup tool button (already exists in index.php, just add event listener)
      */
     createToolUI() {
-        // Add Text Annotation button to tools panel
-        const toolsPanel = document.getElementById('tools-panel');
-        if (toolsPanel) {
-            // Check if button already exists
-            if (!document.getElementById('textAnnotationBtn')) {
-                const btn = document.createElement('button');
-                btn.id = 'textAnnotationBtn';
-                btn.className = 'btn btn-secondary tool-btn';
-                btn.setAttribute('data-tool', 'TextAnnotation');
-                btn.setAttribute('title', 'Add Text Annotation (T)');
-                btn.innerHTML = `
-                    <i class="bi bi-fonts"></i>
-                    <span class="tool-label">Text</span>
-                `;
-
-                // Find a good position - after existing tools
-                const existingButtons = toolsPanel.querySelectorAll('.tool-btn');
-                if (existingButtons.length > 0) {
-                    existingButtons[existingButtons.length - 1].after(btn);
-                } else {
-                    toolsPanel.appendChild(btn);
-                }
-
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.toggleTool();
-                });
-            }
+        // Button is defined in index.php, just attach the click handler
+        const btn = document.getElementById('textAnnotationBtn');
+        if (btn) {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.toggleTool();
+            });
         }
 
         // Create settings panel
@@ -107,59 +86,79 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
             </div>
 
             <style id="textAnnotationStyles">
+                /* Settings panel - positioned near the Text button in right sidebar */
                 .text-annotation-settings {
                     position: fixed;
-                    top: 80px;
-                    right: 20px;
-                    width: 280px;
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    border: 1px solid rgba(255, 255, 255, 0.15);
-                    border-radius: 12px;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                    top: 120px;
+                    right: 270px;
+                    width: 240px;
+                    background: rgba(28, 33, 40, 0.98);
+                    backdrop-filter: blur(12px);
+                    border: 1px solid rgba(13, 110, 253, 0.4);
+                    border-radius: 10px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.05);
                     z-index: 1050;
                     overflow: hidden;
+                    animation: slideIn 0.2s ease-out;
+                }
+
+                @keyframes slideIn {
+                    from { opacity: 0; transform: translateX(10px); }
+                    to { opacity: 1; transform: translateX(0); }
                 }
 
                 .settings-header {
-                    background: rgba(13, 110, 253, 0.3);
+                    background: linear-gradient(135deg, rgba(13, 110, 253, 0.2) 0%, rgba(13, 110, 253, 0.1) 100%);
                     color: #fff;
-                    padding: 12px 15px;
+                    padding: 10px 14px;
                     font-weight: 600;
+                    font-size: 13px;
                     display: flex;
                     align-items: center;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
                 }
 
                 .btn-close-settings {
                     margin-left: auto;
                     background: none;
                     border: none;
-                    color: #fff;
-                    font-size: 20px;
+                    color: rgba(255,255,255,0.6);
+                    font-size: 18px;
                     cursor: pointer;
-                    opacity: 0.7;
-                    transition: opacity 0.2s;
+                    width: 24px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 4px;
+                    transition: all 0.2s;
                 }
 
                 .btn-close-settings:hover {
-                    opacity: 1;
+                    background: rgba(255,255,255,0.1);
+                    color: #fff;
                 }
 
                 .settings-body {
-                    padding: 15px;
+                    padding: 12px 14px;
                 }
 
                 .setting-group {
-                    margin-bottom: 15px;
+                    margin-bottom: 14px;
+                }
+
+                .setting-group:last-child {
+                    margin-bottom: 0;
                 }
 
                 .setting-group label {
                     display: block;
-                    color: #aaa;
-                    font-size: 12px;
+                    color: rgba(255,255,255,0.6);
+                    font-size: 11px;
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
                     margin-bottom: 8px;
+                    font-weight: 500;
                 }
 
                 .font-size-controls {
@@ -170,46 +169,51 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
 
                 .font-size-controls input[type="range"] {
                     flex: 1;
+                    height: 4px;
                 }
 
                 #fontSizeValue {
-                    color: #ffc107;
-                    font-weight: bold;
-                    min-width: 45px;
+                    color: #0d6efd;
+                    font-weight: 600;
+                    font-size: 13px;
+                    min-width: 40px;
+                    text-align: right;
                 }
 
                 .color-presets {
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 8px;
+                    gap: 6px;
                     align-items: center;
                 }
 
                 .color-btn {
-                    width: 28px;
-                    height: 28px;
-                    border-radius: 50%;
-                    border: 2px solid transparent;
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 4px;
+                    border: 2px solid rgba(255,255,255,0.2);
                     cursor: pointer;
-                    transition: all 0.2s;
+                    transition: all 0.15s;
                 }
 
                 .color-btn:hover {
-                    transform: scale(1.15);
+                    transform: scale(1.1);
+                    border-color: rgba(255,255,255,0.5);
                 }
 
                 .color-btn.active {
                     border-color: #fff;
-                    box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+                    box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
                 }
 
                 #customTextColor {
-                    width: 28px;
-                    height: 28px;
-                    border: none;
-                    border-radius: 50%;
+                    width: 24px;
+                    height: 24px;
+                    border: 2px solid rgba(255,255,255,0.3);
+                    border-radius: 4px;
                     cursor: pointer;
-                    background: transparent;
+                    background: linear-gradient(135deg, #ff0000, #00ff00, #0000ff);
+                    padding: 0;
                 }
 
                 /* Text annotation overlay styles */
@@ -218,89 +222,134 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
                     cursor: move;
                     user-select: none;
                     z-index: 100;
-                    transition: box-shadow 0.2s;
+                    transition: box-shadow 0.15s, transform 0.1s;
                 }
 
                 .text-annotation:hover {
-                    box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+                    box-shadow: 0 2px 12px rgba(255, 255, 255, 0.2);
                 }
 
                 .text-annotation.selected {
-                    box-shadow: 0 0 0 2px #0d6efd, 0 0 15px rgba(13, 110, 253, 0.5);
+                    box-shadow: 0 0 0 2px #0d6efd, 0 4px 20px rgba(13, 110, 253, 0.4);
                 }
 
                 .text-annotation-content {
                     padding: 4px 8px;
-                    border-radius: 4px;
+                    border-radius: 3px;
                     white-space: nowrap;
+                    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
                 }
 
                 .text-annotation-delete {
                     position: absolute;
-                    top: -8px;
-                    right: -8px;
-                    width: 20px;
-                    height: 20px;
+                    top: -10px;
+                    right: -10px;
+                    width: 22px;
+                    height: 22px;
                     background: #dc3545;
-                    border: none;
+                    border: 2px solid rgba(255,255,255,0.3);
                     border-radius: 50%;
                     color: #fff;
-                    font-size: 12px;
+                    font-size: 14px;
+                    font-weight: bold;
                     cursor: pointer;
                     display: none;
                     align-items: center;
                     justify-content: center;
                     line-height: 1;
+                    transition: all 0.15s;
+                }
+
+                .text-annotation-delete:hover {
+                    background: #c82333;
+                    transform: scale(1.1);
                 }
 
                 .text-annotation.selected .text-annotation-delete {
                     display: flex;
                 }
 
-                /* Input dialog */
+                /* Compact text input dialog - inline style */
                 .text-input-dialog {
                     position: fixed;
                     top: 50%;
                     left: 50%;
                     transform: translate(-50%, -50%);
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    background: rgba(28, 33, 40, 0.98);
+                    backdrop-filter: blur(16px);
+                    border: 1px solid rgba(13, 110, 253, 0.4);
                     border-radius: 12px;
-                    padding: 20px;
+                    padding: 0;
                     z-index: 2000;
-                    min-width: 320px;
-                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                    min-width: 300px;
+                    max-width: 360px;
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.05);
                     display: none;
+                    overflow: hidden;
+                    animation: dialogIn 0.2s ease-out;
+                }
+
+                @keyframes dialogIn {
+                    from { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+                    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
                 }
 
                 .text-input-dialog h5 {
                     color: #fff;
-                    margin-bottom: 15px;
+                    margin: 0;
+                    padding: 14px 18px;
                     display: flex;
                     align-items: center;
                     gap: 10px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    background: linear-gradient(135deg, rgba(13, 110, 253, 0.15) 0%, transparent 100%);
+                    border-bottom: 1px solid rgba(255,255,255,0.08);
+                }
+
+                .text-input-dialog h5 i {
+                    color: #0d6efd;
+                }
+
+                .text-input-dialog .dialog-content {
+                    padding: 16px 18px;
                 }
 
                 .text-input-dialog input[type="text"] {
                     width: 100%;
-                    padding: 10px 15px;
-                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    padding: 12px 14px;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
                     border-radius: 8px;
                     background: rgba(0, 0, 0, 0.3);
                     color: #fff;
-                    font-size: 16px;
-                    margin-bottom: 15px;
+                    font-size: 15px;
+                    transition: all 0.2s;
+                }
+
+                .text-input-dialog input[type="text"]::placeholder {
+                    color: rgba(255,255,255,0.4);
                 }
 
                 .text-input-dialog input[type="text"]:focus {
                     outline: none;
                     border-color: #0d6efd;
+                    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.2);
                 }
 
                 .text-input-dialog .dialog-buttons {
                     display: flex;
                     gap: 10px;
                     justify-content: flex-end;
+                    padding: 12px 18px;
+                    background: rgba(0,0,0,0.2);
+                    border-top: 1px solid rgba(255,255,255,0.05);
+                }
+
+                .text-input-dialog .dialog-buttons .btn {
+                    padding: 8px 16px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    border-radius: 6px;
                 }
 
                 .dialog-backdrop {
@@ -309,7 +358,8 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
                     left: 0;
                     width: 100%;
                     height: 100%;
-                    background: rgba(0, 0, 0, 0.5);
+                    background: rgba(0, 0, 0, 0.6);
+                    backdrop-filter: blur(4px);
                     z-index: 1999;
                     display: none;
                 }
@@ -332,10 +382,12 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
             <div class="dialog-backdrop" id="textDialogBackdrop"></div>
             <div class="text-input-dialog" id="textInputDialog">
                 <h5><i class="bi bi-fonts"></i> Add Text Annotation</h5>
-                <input type="text" id="textAnnotationInput" placeholder="Enter text..." autocomplete="off">
+                <div class="dialog-content">
+                    <input type="text" id="textAnnotationInput" placeholder="Type your annotation..." autocomplete="off">
+                </div>
                 <div class="dialog-buttons">
-                    <button class="btn btn-secondary" id="cancelTextBtn">Cancel</button>
-                    <button class="btn btn-primary" id="addTextBtn">Add Text</button>
+                    <button class="btn btn-secondary btn-sm" id="cancelTextBtn">Cancel</button>
+                    <button class="btn btn-primary btn-sm" id="addTextBtn"><i class="bi bi-check2 me-1"></i>Add</button>
                 </div>
             </div>
         `;
