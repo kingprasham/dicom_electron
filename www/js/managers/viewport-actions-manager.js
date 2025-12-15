@@ -285,6 +285,7 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
 
     /**
      * Insert all images into viewports automatically
+     * Respects the current layout selection and uses page navigator for overflow
      */
     async insertAllImages() {
         console.log('Insert All triggered');
@@ -301,20 +302,7 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         const imageCount = images.length;
         console.log(`Inserting ${imageCount} images`);
 
-        // Check if Custom Grid Manager is available
-        const customGridManager = window.DICOM_VIEWER.MANAGERS.customGridManager;
-        if (!customGridManager) {
-            console.warn('Custom Grid Manager not initialized, falling back to current layout');
-        } else {
-            // Calculate optimal grid
-            const { rows, cols } = customGridManager.calculateOptimalGrid(imageCount);
-            console.log(`Calculated optimal grid: ${rows}x${cols} for ${imageCount} images`);
-
-            // Apply new grid layout
-            customGridManager.applyCustomGrid(rows, cols);
-        }
-
-        // Get viewport manager (should be updated with new layout now)
+        // Get viewport manager - use CURRENT layout (don't override user's selection)
         const viewportManager = window.DICOM_VIEWER.MANAGERS.viewportManager;
         if (!viewportManager) {
             window.DICOM_VIEWER.showAISuggestion('Viewport manager not ready. Please wait...');
@@ -324,7 +312,7 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         // Get available viewports in current layout
         const viewports = viewportManager.getAllViewports();
         const viewportCount = viewports.length;
-        console.log(`Available viewports: ${viewportCount}`);
+        console.log(`Available viewports in current layout: ${viewportCount}`);
 
         if (viewportCount === 0) {
             window.DICOM_VIEWER.showAISuggestion('No viewports available.');
@@ -334,9 +322,9 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         // Clear previous viewport images tracking
         state.viewportImages = [];
 
-        // Distribute images across viewports
+        // Load only the first page of images (up to viewport count)
         const imagesToLoad = Math.min(imageCount, viewportCount);
-        window.DICOM_VIEWER.showAISuggestion(`Loading ${imagesToLoad} images into viewports...`);
+        window.DICOM_VIEWER.showAISuggestion(`Loading ${imagesToLoad} of ${imageCount} images...`);
 
         for (let i = 0; i < imagesToLoad; i++) {
             const viewport = viewports[i];
@@ -353,7 +341,21 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         // Fit images to viewports after loading
         setTimeout(() => {
             this.fitAllImagesToViewports();
-            window.DICOM_VIEWER.showAISuggestion(`Loaded ${imagesToLoad} images into viewports`);
+
+            // Trigger page navigator refresh to enable pagination for remaining images
+            if (window.DICOM_VIEWER.MANAGERS.pageNavigator) {
+                window.DICOM_VIEWER.MANAGERS.pageNavigator.refresh();
+            }
+
+            // Show appropriate message based on whether pagination is needed
+            if (imageCount > viewportCount) {
+                const totalPages = Math.ceil(imageCount / viewportCount);
+                window.DICOM_VIEWER.showAISuggestion(
+                    `Page 1 of ${totalPages} (${imagesToLoad} images). Use Page Navigator or PageUp/PageDown for all ${imageCount} images.`
+                );
+            } else {
+                window.DICOM_VIEWER.showAISuggestion(`Loaded all ${imagesToLoad} images into viewports`);
+            }
         }, 300);
 
         console.log('Insert All completed. Tracked images:', state.viewportImages.length);
