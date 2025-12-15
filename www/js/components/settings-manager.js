@@ -6,34 +6,40 @@ window.DICOM_VIEWER.SettingsManager = {
         showOverlay: true,
         showMeasurements: true,
         interpolation: 1, // 0=Nearest, 1=Linear, 2=Cubic
-        
+
         // Performance Settings
         cacheSize: 500, // MB
         maxConcurrentLoads: 3,
         imageQuality: 'high', // low, medium, high
-        
+
         // MPR Settings
         mprQuality: 'medium', // low, medium, high
         mprAutoLoad: true,
-        
+
         // Mouse Controls
         zoomSensitivity: 1.0,
         panSensitivity: 1.0,
         wlSensitivity: 1.0,
         invertMouseWheel: false,
-        
+
         // Keyboard Shortcuts
         keyboardEnabled: true,
-        
+
         // Auto-save Settings
         autoSaveReports: true,
         autoSaveInterval: 30, // seconds
-        
+
         // Export Settings
         exportFormat: 'png', // png, jpg
         exportQuality: 0.95,
         includeOverlays: true,
-        
+
+        // Print Border Settings
+        printBorderEnabled: true,
+        printBorderColor: '#000000',
+        printBorderWidth: 2,
+        printBorderStyle: 'solid',
+
         // Advanced
         debugMode: false,
         showFPS: false,
@@ -357,6 +363,51 @@ window.DICOM_VIEWER.SettingsManager = {
                        min="10" max="300" step="10" value="30">
                 <small class="text-muted">How often to auto-save drafts</small>
             </div>
+
+            <h6 class="text-info mb-3 mt-4"><i class="bi bi-bounding-box"></i> Print Border Settings</h6>
+            
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="setting-printBorderEnabled">
+                <label class="form-check-label">Enable Border on Printed Images</label>
+                <small class="text-muted d-block">Add border around each image when printing</small>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Border Color</label>
+                    <div class="d-flex gap-2 align-items-center">
+                        <input type="color" class="form-control form-control-color" id="setting-printBorderColor" 
+                            value="#000000" title="Border color">
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-dark border-color-preset" data-color="#000000" title="Black">■</button>
+                            <button type="button" class="btn btn-outline-secondary border-color-preset" data-color="#333333" title="Gray">■</button>
+                            <button type="button" class="btn btn-outline-primary border-color-preset" data-color="#0d6efd" title="Blue">■</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">
+                        Border Thickness: <span id="borderWidthLabel">2</span>px
+                    </label>
+                    <input type="range" class="form-range" id="setting-printBorderWidth" 
+                           min="1" max="8" step="1" value="2">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Border Style</label>
+                    <select class="form-select" id="setting-printBorderStyle">
+                        <option value="solid">Solid</option>
+                        <option value="dashed">Dashed</option>
+                        <option value="dotted">Dotted</option>
+                        <option value="double">Double</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="p-2 bg-dark rounded">
+                <small class="text-muted me-2">Preview:</small>
+                <span id="borderPreviewBox" style="display: inline-block; width: 120px; height: 35px; 
+                    border: 2px solid #000000; background: #444; vertical-align: middle; border-radius: 2px;"></span>
+            </div>
         </div>`;
     },
 
@@ -441,6 +492,43 @@ window.DICOM_VIEWER.SettingsManager = {
             }
         });
 
+        // Border settings event listeners
+        const borderWidthInput = document.getElementById('setting-printBorderWidth');
+        const borderWidthLabel = document.getElementById('borderWidthLabel');
+        if (borderWidthInput && borderWidthLabel) {
+            borderWidthInput.addEventListener('input', (e) => {
+                borderWidthLabel.textContent = e.target.value;
+                this.updateBorderPreview();
+            });
+        }
+
+        // Border color presets
+        document.querySelectorAll('.border-color-preset').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const color = e.target.dataset.color;
+                const colorInput = document.getElementById('setting-printBorderColor');
+                if (colorInput && color) {
+                    colorInput.value = color;
+                    this.updateBorderPreview();
+                }
+            });
+        });
+
+        // Border color picker change
+        document.getElementById('setting-printBorderColor')?.addEventListener('input', () => {
+            this.updateBorderPreview();
+        });
+
+        // Border style change
+        document.getElementById('setting-printBorderStyle')?.addEventListener('change', () => {
+            this.updateBorderPreview();
+        });
+
+        // Border enabled change
+        document.getElementById('setting-printBorderEnabled')?.addEventListener('change', () => {
+            this.updateBorderPreview();
+        });
+
         // Save settings button
         document.getElementById('saveSettingsBtn')?.addEventListener('click', () => {
             this.saveSettings();
@@ -484,7 +572,7 @@ window.DICOM_VIEWER.SettingsManager = {
         console.log('Opening settings...');
         this.loadSettingsIntoForm();
         this.updateSystemInfo();
-        
+
         const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
         modal.show();
     },
@@ -499,7 +587,7 @@ window.DICOM_VIEWER.SettingsManager = {
                 } else {
                     element.value = this.settings[key];
                 }
-                
+
                 // Trigger input event to update labels
                 element.dispatchEvent(new Event('input'));
             }
@@ -508,7 +596,7 @@ window.DICOM_VIEWER.SettingsManager = {
 
     saveSettings() {
         console.log('Saving settings...');
-        
+
         // Read all settings from form
         Object.keys(this.settings).forEach(key => {
             const element = document.getElementById(`setting-${key}`);
@@ -525,13 +613,13 @@ window.DICOM_VIEWER.SettingsManager = {
 
         // Save to localStorage
         localStorage.setItem('dicomViewerSettings', JSON.stringify(this.settings));
-        
+
         // Apply settings
         this.applySettings();
-        
+
         // Close modal
         bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
-        
+
         window.DICOM_VIEWER.showAISuggestion('Settings saved successfully!');
     },
 
@@ -546,34 +634,34 @@ window.DICOM_VIEWER.SettingsManager = {
                 console.error('Error loading settings:', error);
             }
         }
-        
+
         // Apply loaded settings
         this.applySettings();
     },
 
     applySettings() {
         console.log('Applying settings...', this.settings);
-        
+
         // Apply interpolation
         const interpolationSelect = document.getElementById('interpolationSelect');
         if (interpolationSelect) {
             interpolationSelect.value = this.settings.interpolation;
             window.DICOM_VIEWER.changeInterpolation({ target: interpolationSelect });
         }
-        
+
         // Apply MPR quality
         const mprQualitySelect = document.getElementById('mprQuality');
         if (mprQualitySelect) {
             mprQualitySelect.value = this.settings.mprQuality;
         }
-        
+
         // Apply cache size
         if (cornerstone.imageCache) {
             const cacheSizeBytes = this.settings.cacheSize * 1024 * 1024;
             cornerstone.imageCache.setMaximumSizeBytes(cacheSizeBytes);
             console.log(`Cache size set to ${this.settings.cacheSize}MB`);
         }
-        
+
         // Apply debug mode
         if (this.settings.debugMode) {
             window.DICOM_VIEWER.DEBUG_MODE = true;
@@ -602,15 +690,19 @@ window.DICOM_VIEWER.SettingsManager = {
             exportFormat: 'png',
             exportQuality: 0.95,
             includeOverlays: true,
+            printBorderEnabled: true,
+            printBorderColor: '#000000',
+            printBorderWidth: 2,
+            printBorderStyle: 'solid',
             debugMode: false,
             showFPS: false,
             logErrors: true
         };
-        
+
         localStorage.removeItem('dicomViewerSettings');
         this.loadSettingsIntoForm();
         this.applySettings();
-        
+
         window.DICOM_VIEWER.showAISuggestion('Settings reset to default');
     },
 
@@ -627,7 +719,7 @@ window.DICOM_VIEWER.SettingsManager = {
         if (browserInfo) {
             browserInfo.textContent = navigator.userAgent.split(' ').pop();
         }
-        
+
         // Memory info (if available)
         if (performance.memory) {
             const memoryInfo = document.getElementById('memoryInfo');
@@ -637,7 +729,7 @@ window.DICOM_VIEWER.SettingsManager = {
                 memoryInfo.textContent = `${used} MB / ${total} MB`;
             }
         }
-        
+
         // Cache info
         if (cornerstone.imageCache) {
             const cacheInfo = document.getElementById('cacheInfo');
@@ -648,7 +740,7 @@ window.DICOM_VIEWER.SettingsManager = {
                 cacheInfo.textContent = `${used} MB / ${max} MB`;
             }
         }
-        
+
         // Images loaded
         const imagesInfo = document.getElementById('imagesInfo');
         if (imagesInfo && window.DICOM_VIEWER.STATE) {
@@ -664,6 +756,32 @@ window.DICOM_VIEWER.SettingsManager = {
         this.settings[key] = value;
         localStorage.setItem('dicomViewerSettings', JSON.stringify(this.settings));
         this.applySettings();
+    },
+
+    updateBorderPreview() {
+        const preview = document.getElementById('borderPreviewBox');
+        if (!preview) return;
+
+        const enabled = document.getElementById('setting-printBorderEnabled')?.checked ?? true;
+        const color = document.getElementById('setting-printBorderColor')?.value || '#000000';
+        const width = document.getElementById('setting-printBorderWidth')?.value || 2;
+        const style = document.getElementById('setting-printBorderStyle')?.value || 'solid';
+
+        if (enabled) {
+            preview.style.border = `${width}px ${style} ${color}`;
+        } else {
+            preview.style.border = '2px dashed #666';
+        }
+    },
+
+    // Get print border settings for use by print manager
+    getPrintBorderSettings() {
+        return {
+            enabled: this.settings.printBorderEnabled,
+            color: this.settings.printBorderColor,
+            width: this.settings.printBorderWidth,
+            style: this.settings.printBorderStyle
+        };
     }
 };
 

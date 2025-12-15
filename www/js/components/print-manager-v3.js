@@ -74,8 +74,38 @@ window.DICOM_VIEWER.PrintManager = class {
                     paperSize: 'A4',
                     orientation: 'landscape',
                     quality: 'high',
-                    colorMode: 'grayscale'
+                    colorMode: 'grayscale',
+                    // Border settings - defaults
+                    borderEnabled: true,
+                    borderColor: '#000000',
+                    borderWidth: 2,
+                    borderStyle: 'solid'
                 };
+            }
+
+            // Load border settings from localStorage (saved from admin settings page)
+            const savedBorderSettings = localStorage.getItem('dicomPrintBorderSettings');
+            if (savedBorderSettings) {
+                try {
+                    const parsed = JSON.parse(savedBorderSettings);
+                    this.printSettings.borderEnabled = parsed.printBorderEnabled ?? true;
+                    this.printSettings.borderColor = parsed.printBorderColor || '#000000';
+                    this.printSettings.borderWidth = parsed.printBorderWidth || 2;
+                    this.printSettings.borderStyle = parsed.printBorderStyle || 'solid';
+                    console.log('Loaded border settings from localStorage:', parsed);
+                } catch (e) {
+                    console.warn('Error parsing border settings from localStorage:', e);
+                }
+            }
+            // Fallback: Also check SettingsManager if available
+            else if (window.DICOM_VIEWER && window.DICOM_VIEWER.SettingsManager) {
+                const borderSettings = window.DICOM_VIEWER.SettingsManager.getPrintBorderSettings();
+                if (borderSettings) {
+                    this.printSettings.borderEnabled = borderSettings.enabled;
+                    this.printSettings.borderColor = borderSettings.color;
+                    this.printSettings.borderWidth = borderSettings.width;
+                    this.printSettings.borderStyle = borderSettings.style;
+                }
             }
         } catch (error) {
             console.error('Error loading print settings:', error);
@@ -116,7 +146,12 @@ window.DICOM_VIEWER.PrintManager = class {
             paperSize: 'A4',
             orientation: 'landscape',
             quality: 'high',
-            colorMode: 'grayscale'
+            colorMode: 'grayscale',
+            // Border settings
+            borderEnabled: true,
+            borderColor: '#000000',
+            borderWidth: 2,
+            borderStyle: 'solid'
         };
     }
 
@@ -383,12 +418,15 @@ window.DICOM_VIEWER.PrintManager = class {
                                     Orientation: <strong>${this.printSettings.orientation}</strong> |
                                     Quality: <strong>${this.printSettings.quality}</strong>
                                 </small>
-                                <br>
-                                <small class="text-muted">
-                                    <a href="../admin/settings.php#print-settings" target="_blank" class="text-primary">
-                                        <i class="bi bi-gear me-1"></i>Change print settings
-                                    </a>
-                                </small>
+                            </div>
+
+                            <!-- Border Settings moved to App Settings -->
+                            <div class="mt-3 p-2 bg-secondary bg-opacity-10 rounded small">
+                                <i class="bi bi-info-circle me-1 text-info"></i>
+                                <span class="text-muted">Border settings are configured in </span>
+                                <a href="#" id="openBorderSettingsLink" class="text-primary">
+                                    <i class="bi bi-gear me-1"></i>App Settings → Export
+                                </a>
                             </div>
                         </div>
 
@@ -617,6 +655,61 @@ window.DICOM_VIEWER.PrintManager = class {
                 this.querySelector('div').insertAdjacentHTML('beforeend',
                     '<i class="bi bi-check-circle-fill text-primary fs-5"></i>');
             });
+        });
+
+        // Border settings event listeners
+        const updateBorderPreview = () => {
+            const preview = document.getElementById('borderPreview');
+            if (preview) {
+                const enabled = document.getElementById('borderEnabled')?.checked ?? true;
+                const color = document.getElementById('borderColor')?.value || '#000000';
+                const width = document.getElementById('borderWidth')?.value || 2;
+                const style = document.getElementById('borderStyle')?.value || 'solid';
+
+                if (enabled) {
+                    preview.style.border = `${width}px ${style} ${color}`;
+                } else {
+                    preview.style.border = 'none';
+                }
+            }
+        };
+
+        // Border enable toggle
+        document.getElementById('borderEnabled')?.addEventListener('change', (e) => {
+            this.printSettings.borderEnabled = e.target.checked;
+            updateBorderPreview();
+        });
+
+        // Border color picker
+        document.getElementById('borderColor')?.addEventListener('input', (e) => {
+            this.printSettings.borderColor = e.target.value;
+            updateBorderPreview();
+        });
+
+        // Border color presets
+        document.querySelectorAll('.border-preset').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const color = btn.dataset.color;
+                const colorPicker = document.getElementById('borderColor');
+                if (colorPicker) {
+                    colorPicker.value = color;
+                    this.printSettings.borderColor = color;
+                    updateBorderPreview();
+                }
+            });
+        });
+
+        // Border width slider
+        document.getElementById('borderWidth')?.addEventListener('input', (e) => {
+            this.printSettings.borderWidth = parseInt(e.target.value);
+            document.getElementById('borderWidthValue').textContent = `${e.target.value}px`;
+            updateBorderPreview();
+        });
+
+        // Border style dropdown
+        document.getElementById('borderStyle')?.addEventListener('change', (e) => {
+            this.printSettings.borderStyle = e.target.value;
+            updateBorderPreview();
         });
 
         // Preview button
@@ -1050,7 +1143,7 @@ window.DICOM_VIEWER.PrintManager = class {
         .viewport-cell {
             position: relative;
             background: #000;
-            border: 1px solid #444;
+            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
             border-radius: 4px;
             overflow: hidden;
             display: flex;
@@ -1279,7 +1372,7 @@ window.DICOM_VIEWER.PrintManager = class {
         .viewport-cell {
             position: relative;
             background: #000;
-            border: 2px solid #ddd;
+            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
             border-radius: 6px;
             overflow: hidden;
             display: flex;

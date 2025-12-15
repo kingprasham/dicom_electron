@@ -311,7 +311,73 @@ $detectedIP = getLocalIPAddress();
                 </div>
             </div>
 
-            <!-- Orthanc Configuration -->
+            <!-- Print Settings -->
+            <div class="settings-card" id="print-settings">
+                <div class="category-header">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-file-earmark-image category-icon"></i>
+                        <h4 class="mb-0 text-white">Print Settings</h4>
+                    </div>
+                </div>
+                
+                <p class="text-muted small mb-3">Configure default border settings for printed images. These settings will be applied automatically when printing.</p>
+                
+                <div class="row">
+                    <!-- Border Enabled -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label text-light">Enable Border</label>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" id="printBorderEnabled" name="print_border_enabled" checked>
+                            <label class="form-check-label text-muted" for="printBorderEnabled">Add border to images</label>
+                        </div>
+                    </div>
+                    
+                    <!-- Border Color -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label text-light">Border Color</label>
+                        <div class="d-flex gap-2 align-items-center">
+                            <input type="color" class="form-control form-control-color" id="printBorderColor" name="print_border_color" value="#000000" title="Choose border color">
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-light border-color-btn" data-color="#000000" title="Black" style="width: 30px; height: 30px; background: #000000; border-color: #555;"></button>
+                                <button type="button" class="btn btn-outline-light border-color-btn" data-color="#333333" title="Dark Gray" style="width: 30px; height: 30px; background: #333333; border-color: #555;"></button>
+                                <button type="button" class="btn btn-outline-light border-color-btn" data-color="#0d6efd" title="Blue" style="width: 30px; height: 30px; background: #0d6efd; border-color: #555;"></button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Border Thickness -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label text-light">Border Thickness: <span id="borderThicknessLabel">2</span>px</label>
+                        <input type="range" class="form-range" id="printBorderWidth" name="print_border_width" min="1" max="8" value="2">
+                    </div>
+                    
+                    <!-- Border Style -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label text-light">Border Style</label>
+                        <select class="form-select bg-dark text-light" id="printBorderStyle" name="print_border_style" style="border-color: rgba(255,255,255,0.2);">
+                            <option value="solid">Solid</option>
+                            <option value="dashed">Dashed</option>
+                            <option value="dotted">Dotted</option>
+                            <option value="double">Double</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Live Preview -->
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <label class="form-label text-light">Preview:</label>
+                        <div class="d-flex align-items-center gap-3">
+                            <div id="borderPreviewBox" style="width: 150px; height: 80px; background: #333; border: 2px solid #000000; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                                <span class="text-muted small">Sample Image</span>
+                            </div>
+                            <div class="text-muted small">
+                                <i class="bi bi-info-circle"></i> This is how the border will appear on printed images
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="settings-card">
                 <div class="category-header">
                     <i class="bi bi-server category-icon"></i>
@@ -1669,7 +1735,126 @@ $detectedIP = getLocalIPAddress();
             
             document.getElementById('saveClinicSettingsBtn')?.addEventListener('click', saveClinicSettings);
             document.getElementById('multiClinicMode')?.addEventListener('change', toggleMultiClinicInfo);
+            
+            // Initialize print border settings
+            initPrintBorderSettings();
         });
+
+        // --- Print Border Settings Management ---
+        function initPrintBorderSettings() {
+            // Load saved settings from localStorage
+            loadPrintBorderSettings();
+            
+            // Thickness slider with live label update
+            const thicknessInput = document.getElementById('printBorderWidth');
+            const thicknessLabel = document.getElementById('borderThicknessLabel');
+            if (thicknessInput && thicknessLabel) {
+                thicknessInput.addEventListener('input', (e) => {
+                    thicknessLabel.textContent = e.target.value;
+                    updateBorderPreview();
+                    savePrintBorderSettings();
+                });
+            }
+            
+            // Color picker change
+            document.getElementById('printBorderColor')?.addEventListener('input', () => {
+                updateBorderPreview();
+                savePrintBorderSettings();
+            });
+            
+            // Color preset buttons
+            document.querySelectorAll('.border-color-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const color = e.target.dataset.color;
+                    const colorInput = document.getElementById('printBorderColor');
+                    if (colorInput && color) {
+                        colorInput.value = color;
+                        updateBorderPreview();
+                        savePrintBorderSettings();
+                    }
+                });
+            });
+            
+            // Style dropdown change
+            document.getElementById('printBorderStyle')?.addEventListener('change', () => {
+                updateBorderPreview();
+                savePrintBorderSettings();
+            });
+            
+            // Enable toggle change
+            document.getElementById('printBorderEnabled')?.addEventListener('change', () => {
+                updateBorderPreview();
+                savePrintBorderSettings();
+            });
+        }
+        
+        function updateBorderPreview() {
+            const preview = document.getElementById('borderPreviewBox');
+            if (!preview) return;
+            
+            const enabled = document.getElementById('printBorderEnabled')?.checked ?? true;
+            const color = document.getElementById('printBorderColor')?.value || '#000000';
+            const width = document.getElementById('printBorderWidth')?.value || 2;
+            const style = document.getElementById('printBorderStyle')?.value || 'solid';
+            
+            if (enabled) {
+                preview.style.border = `${width}px ${style} ${color}`;
+            } else {
+                preview.style.border = '2px dashed #666';
+            }
+        }
+        
+        function savePrintBorderSettings() {
+            const settings = {
+                printBorderEnabled: document.getElementById('printBorderEnabled')?.checked ?? true,
+                printBorderColor: document.getElementById('printBorderColor')?.value || '#000000',
+                printBorderWidth: parseInt(document.getElementById('printBorderWidth')?.value || 2),
+                printBorderStyle: document.getElementById('printBorderStyle')?.value || 'solid'
+            };
+            
+            // Save to localStorage
+            localStorage.setItem('dicomPrintBorderSettings', JSON.stringify(settings));
+            
+            // Also update SettingsManager if available (for viewer integration)
+            if (window.DICOM_VIEWER && window.DICOM_VIEWER.SettingsManager) {
+                window.DICOM_VIEWER.SettingsManager.setSetting('printBorderEnabled', settings.printBorderEnabled);
+                window.DICOM_VIEWER.SettingsManager.setSetting('printBorderColor', settings.printBorderColor);
+                window.DICOM_VIEWER.SettingsManager.setSetting('printBorderWidth', settings.printBorderWidth);
+                window.DICOM_VIEWER.SettingsManager.setSetting('printBorderStyle', settings.printBorderStyle);
+            }
+            
+            console.log('Print border settings saved:', settings);
+            showSuccess('Print border settings saved!');
+        }
+        
+        function loadPrintBorderSettings() {
+            const saved = localStorage.getItem('dicomPrintBorderSettings');
+            if (saved) {
+                try {
+                    const settings = JSON.parse(saved);
+                    
+                    if (document.getElementById('printBorderEnabled')) {
+                        document.getElementById('printBorderEnabled').checked = settings.printBorderEnabled ?? true;
+                    }
+                    if (document.getElementById('printBorderColor')) {
+                        document.getElementById('printBorderColor').value = settings.printBorderColor || '#000000';
+                    }
+                    if (document.getElementById('printBorderWidth')) {
+                        document.getElementById('printBorderWidth').value = settings.printBorderWidth || 2;
+                        document.getElementById('borderThicknessLabel').textContent = settings.printBorderWidth || 2;
+                    }
+                    if (document.getElementById('printBorderStyle')) {
+                        document.getElementById('printBorderStyle').value = settings.printBorderStyle || 'solid';
+                    }
+                    
+                    // Update preview with loaded settings
+                    updateBorderPreview();
+                    console.log('Print border settings loaded:', settings);
+                } catch (e) {
+                    console.error('Error loading print border settings:', e);
+                }
+            }
+        }
     </script>
 </body>
 </html>

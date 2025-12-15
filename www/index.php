@@ -568,6 +568,11 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                             <button class="btn btn-outline-primary" id="selectModeBtn" title="Toggle Selection Mode"><i class="bi bi-list-check"></i> Select</button>
                             <button class="btn btn-primary" id="arrangeBtn" title="Arrange Selected Images" style="display:none;"><i class="bi bi-sort-numeric-down"></i> Arrange</button>
                         </div>
+                        
+                        <!-- Reset button -->
+                        <button class="btn btn-sm btn-outline-warning" id="resetViewportBtn" title="Reset Current Viewport (Zoom, Pan, W/L)">
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset
+                        </button>
                     </div>
                 </div>
             </div>
@@ -718,6 +723,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
     <script src="<?= BASE_PATH ?>/js/managers/crosshair-manager.js"></script>
     <script src="<?= BASE_PATH ?>/js/managers/viewport-manager.js"></script>
     <script src="<?= BASE_PATH ?>/js/managers/custom-grid-layout-manager.js?v=<?= time() ?>"></script>
+    <script src="<?= BASE_PATH ?>/js/managers/advanced-layout-manager.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/managers/viewport-actions-manager.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/managers/mpr-manager.js"></script>
     <script src="<?= BASE_PATH ?>/js/managers/reference-lines-manager.js"></script>
@@ -931,38 +937,605 @@ $userRole = $_SESSION['role'] ?? 'viewer';
         }
     </script>
 
-    <!-- Custom Grid Selector Modal -->
+    <!-- Custom Grid Selector Modal with Advanced Layouts -->
     <div id="customGridModal" class="modal fade" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Select Grid Layout</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body text-center">
-                    <p class="mb-3">Select number of rows and columns:</p>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label for="gridRows" class="form-label">Rows:</label>
-                            <input type="number" class="form-control" id="gridRows" min="1" max="5" value="2">
-                        </div>
-                        <div class="col-md-6">
-                            <label for="gridCols" class="form-label">Columns:</label>
-                            <input type="number" class="form-control" id="gridCols" min="1" max="5" value="2">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header border-secondary" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-grid-1x2-fill fs-4 text-info me-3"></i>
+                        <div>
+                            <h5 class="modal-title mb-0">Select Grid Layout</h5>
+                            <small class="text-muted">Choose a preset layout or create custom</small>
                         </div>
                     </div>
-                    <div class="mt-3">
-                        <p class="text-muted small">Maximum: 5 rows × 5 columns (25 viewports)</p>
-                        <p id="gridPreview" class="fw-bold text-info">Grid: 2 × 2 (4 viewports)</p>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <!-- Custom Grid Row/Col Inputs -->
+                    <div class="p-3 border-bottom border-secondary bg-dark">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label for="gridRows" class="form-label small">Rows:</label>
+                                <input type="number" class="form-control form-control-sm bg-secondary text-light border-0" id="gridRows" min="1" max="5" value="2">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="gridCols" class="form-label small">Columns:</label>
+                                <input type="number" class="form-control form-control-sm bg-secondary text-light border-0" id="gridCols" min="1" max="5" value="2">
+                            </div>
+                            <div class="col-md-3">
+                                <p id="gridPreview" class="fw-bold text-info mb-0 small">Grid: 2 × 2 (4 viewports)</p>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="button" class="btn btn-primary btn-sm w-100" id="applyCustomGrid">
+                                    <i class="bi bi-check-lg me-1"></i>Apply Custom
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Preset Layouts Tabs -->
+                    <div class="layout-tabs-container">
+                        <ul class="nav nav-tabs layout-category-tabs" role="tablist" style="background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(255,255,255,0.1); padding: 0 10px;">
+                            <li class="nav-item">
+                                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#layout-1-2" type="button" role="tab" style="color: #adb5bd; border: none; border-bottom: 3px solid transparent; padding: 12px 15px; font-size: 12px;">1 & 2 Spots</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#layout-3" type="button" role="tab" style="color: #adb5bd; border: none; border-bottom: 3px solid transparent; padding: 12px 15px; font-size: 12px;">3 Spots</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#layout-4" type="button" role="tab" style="color: #adb5bd; border: none; border-bottom: 3px solid transparent; padding: 12px 15px; font-size: 12px;">4 Spots</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#layout-5-7" type="button" role="tab" style="color: #adb5bd; border: none; border-bottom: 3px solid transparent; padding: 12px 15px; font-size: 12px;">5 & 7 Spots</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#layout-6-12" type="button" role="tab" style="color: #adb5bd; border: none; border-bottom: 3px solid transparent; padding: 12px 15px; font-size: 12px;">6 to 12 Spots</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content p-4">
+                            <!-- 1 & 2 Spots -->
+                            <div class="tab-pane fade show active" id="layout-1-2" role="tabpanel">
+                                <fieldset class="layout-fieldset" style="border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 15px;">
+                                    <legend style="color: #dc3545; font-size: 13px; padding: 0 10px; width: auto;">1 and 2 Spots</legend>
+                                    <div class="preset-layouts-grid d-flex flex-wrap gap-3">
+                                        <div class="layout-preset-card" data-rows="1" data-cols="1" title="1×1">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                            </div>
+                                            <span class="preset-label">1</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="1" data-cols="2" title="1×2 Horizontal">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                            </div>
+                                            <span class="preset-label">2</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="2" data-cols="1" title="2×1 Vertical">
+                                            <div class="preset-preview" style="display: grid; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 25px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 25px;"></div>
+                                            </div>
+                                            <span class="preset-label">2</span>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                            </div>
+
+                            <!-- 3 Spots -->
+                            <div class="tab-pane fade" id="layout-3" role="tabpanel">
+                                <fieldset class="layout-fieldset" style="border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 15px;">
+                                    <legend style="color: #dc3545; font-size: 13px; padding: 0 10px; width: auto;">3 Spots</legend>
+                                    <div class="preset-layouts-grid d-flex flex-wrap gap-3">
+                                        <div class="layout-preset-card" data-rows="1" data-cols="3" title="3 Horizontal">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                            </div>
+                                            <span class="preset-label">3</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="3" data-cols="1" title="3 Vertical">
+                                            <div class="preset-preview" style="display: grid; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 16px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 16px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 16px;"></div>
+                                            </div>
+                                            <span class="preset-label">3</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="2+1-top" data-custom="true" title="2+1 Top">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                            </div>
+                                            <span class="preset-label">3</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+2-left" data-custom="true" title="1+2 Left Big">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-row: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">3</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+2-right" data-custom="true" title="1+2 Right Big">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-row: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">3</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="2+1-bottom" data-custom="true" title="1+2 Bottom">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">3</span>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                            </div>
+
+                            <!-- 4 Spots -->
+                            <div class="tab-pane fade" id="layout-4" role="tabpanel">
+                                <fieldset class="layout-fieldset" style="border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 15px;">
+                                    <legend style="color: #dc3545; font-size: 13px; padding: 0 10px; width: auto;">4 Spots</legend>
+                                    <div class="preset-layouts-grid d-flex flex-wrap gap-3">
+                                        <div class="layout-preset-card" data-rows="2" data-cols="2" title="2×2">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="1" data-cols="4" title="4 Horizontal">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="4" data-cols="1" title="4 Vertical">
+                                            <div class="preset-preview" style="display: grid; grid-template-rows: 1fr 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 12px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 12px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 12px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 12px;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+3-left" data-custom="true" title="1+3 Left Big">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-row: span 3;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+3-right" data-custom="true" title="1+3 Right Big">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-row: span 3;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="3+1-top" data-custom="true" title="3+1 Top">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 3;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="3+1-bottom" data-custom="true" title="1+3 Bottom">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 3;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+2+1" data-custom="true" title="1+2+1">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                            </div>
+                                            <span class="preset-label">4</span>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                            </div>
+
+                            <!-- 5 & 7 Spots -->
+                            <div class="tab-pane fade" id="layout-5-7" role="tabpanel">
+                                <fieldset class="layout-fieldset" style="border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 15px;">
+                                    <legend style="color: #dc3545; font-size: 13px; padding: 0 10px; width: auto;">5 and 7 Spots</legend>
+                                    <div class="preset-layouts-grid d-flex flex-wrap gap-3">
+                                        <div class="layout-preset-card" data-layout="2+3" data-custom="true" title="2+3">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-row: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">5</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+4-big" data-custom="true" title="1+4 Big Left">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-row: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">5</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="2+2+1" data-custom="true" title="2+2+1">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                            </div>
+                                            <span class="preset-label">5</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+2+2" data-custom="true" title="1+2+2">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">5</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="1" data-cols="5" title="1x5">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                                <div style="background: #333; border: 1px solid #555; height: 50px;"></div>
+                                            </div>
+                                            <span class="preset-label">5</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="3+2+2" data-custom="true" title="3+2+2">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 2;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">7</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-layout="1+3+3" data-custom="true" title="1+3+3">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555; grid-column: span 3;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">7</span>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                            </div>
+
+                            <!-- 6 to 12 Spots -->
+                            <div class="tab-pane fade" id="layout-6-12" role="tabpanel">
+                                <fieldset class="layout-fieldset" style="border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 15px;">
+                                    <legend style="color: #dc3545; font-size: 13px; padding: 0 10px; width: auto;">6 to 12 Spots</legend>
+                                    <div class="preset-layouts-grid d-flex flex-wrap gap-3">
+                                        <div class="layout-preset-card" data-rows="2" data-cols="3" title="2×3">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">6</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="3" data-cols="2" title="3×2">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">6</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="2" data-cols="4" title="2×4">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">8</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="4" data-cols="2" title="4×2">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">8</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="3" data-cols="3" title="3×3">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">9</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="3" data-cols="4" title="3×4">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">12</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="4" data-cols="3" title="4×3">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">12</span>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="applyCustomGrid">Apply Grid</button>
+                <div class="modal-footer border-secondary" style="background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-lg me-2"></i>Cancel
+                    </button>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Professional Layout Preset Styles -->
+    <style>
+        /* Modal Container Enhancement */
+        #customGridModal .modal-content {
+            border: 1px solid rgba(0, 180, 216, 0.3);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+        }
+        
+        #customGridModal .modal-header {
+            background: linear-gradient(135deg, #0a0a14 0%, #101020 100%);
+            border-bottom: 1px solid rgba(0, 180, 216, 0.2);
+            padding: 16px 24px;
+        }
+        
+        #customGridModal .modal-body {
+            background: #0d0d17;
+        }
+        
+        #customGridModal .modal-footer {
+            background: linear-gradient(135deg, #101020 0%, #0a0a14 100%);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Tab Navigation - Clean minimalist style */
+        .layout-category-tabs {
+            background: rgba(0, 0, 0, 0.4) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+            padding: 0 16px !important;
+            gap: 4px;
+        }
+        
+        .layout-category-tabs .nav-link {
+            color: rgba(255, 255, 255, 0.5) !important;
+            background: transparent !important;
+            border: none !important;
+            border-bottom: 2px solid transparent !important;
+            padding: 14px 18px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            letter-spacing: 0.3px;
+            transition: all 0.25s ease !important;
+            border-radius: 0 !important;
+        }
+        
+        .layout-category-tabs .nav-link:hover {
+            color: rgba(255, 255, 255, 0.9) !important;
+            background: rgba(255, 255, 255, 0.03) !important;
+        }
+        
+        .layout-category-tabs .nav-link.active {
+            color: #00b4d8 !important;
+            background: transparent !important;
+            border-bottom: 2px solid #00b4d8 !important;
+        }
+
+        /* Fieldset - Subtle container */
+        .layout-fieldset {
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 10px !important;
+            padding: 20px !important;
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        .layout-fieldset legend {
+            color: rgba(255, 255, 255, 0.6) !important;
+            font-size: 12px !important;
+            font-weight: 500 !important;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            padding: 0 12px !important;
+        }
+
+        /* Layout Preset Cards - Clean professional look */
+        .preset-layouts-grid {
+            gap: 16px !important;
+        }
+        
+        .layout-preset-card {
+            width: 90px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            padding: 8px;
+            border-radius: 8px;
+            background: transparent;
+        }
+        
+        .layout-preset-card:hover {
+            transform: translateY(-4px);
+            background: rgba(0, 180, 216, 0.08);
+        }
+        
+        .layout-preset-card:hover .preset-preview {
+            border-color: #00b4d8;
+            box-shadow: 0 4px 20px rgba(0, 180, 216, 0.25);
+        }
+        
+        .layout-preset-card:hover .preset-label {
+            color: #00b4d8;
+        }
+
+        /* Layout Preview Box - Clean grid visualization */
+        .preset-preview {
+            width: 70px;
+            height: 52px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 4px;
+            background: #0a0a12;
+            margin: 0 auto;
+            transition: all 0.25s ease;
+        }
+        
+        .preset-preview > div {
+            background: linear-gradient(135deg, #1a1a2e 0%, #0d0d17 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            border-radius: 2px !important;
+        }
+
+        /* Spots Count Label */
+        .preset-label {
+            display: block;
+            margin-top: 8px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 13px;
+            font-weight: 600;
+            transition: color 0.2s ease;
+        }
+
+        /* Custom Grid Input Section */
+        #customGridModal .border-bottom {
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        }
+        
+        #customGridModal .form-control {
+            background: rgba(255, 255, 255, 0.08) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            color: #fff !important;
+            border-radius: 6px;
+        }
+        
+        #customGridModal .form-control:focus {
+            background: rgba(255, 255, 255, 0.12) !important;
+            border-color: #00b4d8 !important;
+            box-shadow: 0 0 0 3px rgba(0, 180, 216, 0.15);
+        }
+        
+        #customGridModal .form-label {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        /* Apply Button */
+        #applyCustomGrid {
+            background: linear-gradient(135deg, #00b4d8 0%, #0096c7 100%);
+            border: none;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        
+        #applyCustomGrid:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(0, 180, 216, 0.4);
+        }
+
+        /* Tab Content */
+        #customGridModal .tab-content {
+            padding: 24px !important;
+        }
+    </style>
 
     <!-- Custom Grid Functionality -->
     <script>
@@ -1063,6 +1636,199 @@ $userRole = $_SESSION['role'] ?? 'viewer';
 
             // Initialize preview
             updatePreview();
+
+            // Handle preset layout card clicks
+            document.querySelectorAll('.layout-preset-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    const rows = parseInt(this.dataset.rows);
+                    const cols = parseInt(this.dataset.cols);
+                    const customLayout = this.dataset.layout;
+                    const isCustom = this.dataset.custom === 'true';
+
+                    // Close the modal first
+                    customGridModal.hide();
+
+                    if (!isCustom && rows && cols) {
+                        // Standard grid layout
+                        console.log(`Applying preset grid: ${rows}x${cols}`);
+                        createCustomGridLayout(rows, cols);
+                    } else if (isCustom && customLayout) {
+                        // Advanced asymmetric layout
+                        console.log(`Applying custom layout: ${customLayout}`);
+                        applyAsymmetricLayout(customLayout);
+                    }
+
+                    // Show confirmation
+                    if (window.DICOM_VIEWER.showAISuggestion) {
+                        const spots = this.querySelector('.preset-label').textContent;
+                        window.DICOM_VIEWER.showAISuggestion(`Applied ${spots}-viewport layout`);
+                    }
+                });
+            });
+
+            // Apply asymmetric layouts using CSS Grid template areas
+            function applyAsymmetricLayout(layoutId) {
+                const container = document.getElementById('viewport-container');
+                if (!container) return;
+
+                // Define asymmetric layouts with CSS Grid areas
+                const asymmetricLayouts = {
+                    '2+1-top': { 
+                        areas: '"a b" "c c"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 3 
+                    },
+                    '1+2-left': { 
+                        areas: '"a b" "a c"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 3 
+                    },
+                    '1+2-right': { 
+                        areas: '"a b" "c b"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 3 
+                    },
+                    '2+1-bottom': { 
+                        areas: '"a a" "b c"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 3 
+                    },
+                    '1+3-left': { 
+                        areas: '"a b" "a c" "a d"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr 1fr',
+                        viewports: 4 
+                    },
+                    '1+3-right': { 
+                        areas: '"a b" "c b" "d b"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr 1fr',
+                        viewports: 4 
+                    },
+                    '3+1-top': { 
+                        areas: '"a b c" "d d d"', 
+                        cols: '1fr 1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 4 
+                    },
+                    '3+1-bottom': { 
+                        areas: '"a a a" "b c d"', 
+                        cols: '1fr 1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 4 
+                    },
+                    '1+2+1': { 
+                        areas: '"a a" "b c" "d d"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr 1fr',
+                        viewports: 4 
+                    },
+                    '2+3': { 
+                        areas: '"a b c" "a d e"', 
+                        cols: '1fr 1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 5 
+                    },
+                    '1+4-big': { 
+                        areas: '"a b c" "a d e"', 
+                        cols: '2fr 1fr 1fr', 
+                        rows: '1fr 1fr',
+                        viewports: 5 
+                    },
+                    '2+2+1': { 
+                        areas: '"a b" "c d" "e e"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr 1fr',
+                        viewports: 5 
+                    },
+                    '1+2+2': { 
+                        areas: '"a a" "b c" "d e"', 
+                        cols: '1fr 1fr', 
+                        rows: '1fr 1fr 1fr',
+                        viewports: 5 
+                    },
+                    '3+2+2': { 
+                        areas: '"a b c" "d d e" "f f g"', 
+                        cols: '1fr 1fr 1fr', 
+                        rows: '1fr 1fr 1fr',
+                        viewports: 7 
+                    },
+                    '1+3+3': { 
+                        areas: '"a a a" "b c d" "e f g"', 
+                        cols: '1fr 1fr 1fr', 
+                        rows: '1fr 1fr 1fr',
+                        viewports: 7 
+                    }
+                };
+
+                const layout = asymmetricLayouts[layoutId];
+                if (!layout) {
+                    console.error('Unknown layout:', layoutId);
+                    return;
+                }
+
+                // Create viewport divs with grid area assignments
+                container.innerHTML = '';
+                container.style.display = 'grid';
+                container.style.gridTemplateColumns = layout.cols;
+                container.style.gridTemplateRows = layout.rows;
+                container.style.gridTemplateAreas = layout.areas;
+                container.style.gap = '4px';
+                container.style.height = '100%';
+
+                // Generate viewport names from areas
+                const areaLetters = layout.areas.replace(/['" ]/g, '').split('');
+                const uniqueAreas = [...new Set(areaLetters)];
+
+                uniqueAreas.forEach((area, index) => {
+                    const viewport = document.createElement('div');
+                    viewport.className = 'viewport';
+                    viewport.id = `dicomViewport-${index + 1}`;
+                    viewport.setAttribute('data-viewport-name', `viewport-${index + 1}`);
+                    viewport.style.gridArea = area;
+                    viewport.style.background = '#000';
+                    viewport.style.position = 'relative';
+                    viewport.style.overflow = 'hidden';
+
+                    // Add viewport number overlay
+                    const overlay = document.createElement('div');
+                    overlay.className = 'viewport-number-overlay';
+                    overlay.textContent = index + 1;
+                    overlay.style.cssText = `
+                        position: absolute;
+                        top: 8px;
+                        left: 8px;
+                        background: rgba(0, 0, 0, 0.7);
+                        color: #0d6efd;
+                        padding: 4px 10px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        font-weight: 600;
+                        z-index: 10;
+                    `;
+                    viewport.appendChild(overlay);
+
+                    container.appendChild(viewport);
+                });
+
+                // Initialize cornerstone on viewports
+                container.querySelectorAll('.viewport').forEach(vp => {
+                    try {
+                        cornerstone.enable(vp);
+                    } catch (e) {
+                        console.log('Viewport ready:', vp.id);
+                    }
+                });
+
+                // Dispatch layout change event
+                document.dispatchEvent(new CustomEvent('layoutChanged', { 
+                    detail: { type: 'asymmetric', layout: layoutId, spots: layout.viewports } 
+                }));
+            }
         })();
     </script>
 
@@ -1226,6 +1992,49 @@ $userRole = $_SESSION['role'] ?? 'viewer';
 
                 console.log('All viewports cleared');
             });
+        })();
+    </script>
+
+    <!-- Reset Viewport Button Functionality -->
+    <script>
+        (function() {
+            const resetViewportBtn = document.getElementById('resetViewportBtn');
+            
+            if (resetViewportBtn) {
+                resetViewportBtn.addEventListener('click', function() {
+                    // Try to use existing reset function if available
+                    if (window.DICOM_VIEWER && window.DICOM_VIEWER.resetActiveViewport) {
+                        window.DICOM_VIEWER.resetActiveViewport();
+                        console.log('Viewport reset via DICOM_VIEWER.resetActiveViewport');
+                        return;
+                    }
+                    
+                    // Fallback: reset active viewport manually
+                    const viewports = document.querySelectorAll('.viewport');
+                    const activeViewport = document.querySelector('.viewport.active') || viewports[0];
+                    
+                    if (activeViewport) {
+                        try {
+                            const enabledElement = cornerstone.getEnabledElement(activeViewport);
+                            if (enabledElement && enabledElement.image) {
+                                // Reset viewport to initial values
+                                const viewport = cornerstone.getDefaultViewportForImage(activeViewport, enabledElement.image);
+                                cornerstone.setViewport(activeViewport, viewport);
+                                cornerstone.updateImage(activeViewport);
+                                
+                                console.log('Viewport reset successfully');
+                                
+                                // Show feedback if available
+                                if (window.DICOM_VIEWER && window.DICOM_VIEWER.showAISuggestion) {
+                                    window.DICOM_VIEWER.showAISuggestion('Viewport reset to default');
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Could not reset viewport:', e);
+                        }
+                    }
+                });
+            }
         })();
     </script>
 </body>
