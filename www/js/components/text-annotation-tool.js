@@ -462,6 +462,20 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
                 this.deselectAnnotation();
             }
         });
+
+        // Deactivate text tool when other tools are clicked
+        document.addEventListener('click', (e) => {
+            const toolBtn = e.target.closest('.tool-btn');
+            if (toolBtn && toolBtn.id !== 'textAnnotationBtn' && this.isActive) {
+                // Another tool was clicked, deactivate text tool
+                this.isActive = false;
+                const btn = document.getElementById('textAnnotationBtn');
+                btn?.classList.remove('btn-primary', 'active');
+                btn?.classList.add('btn-secondary');
+                document.getElementById('textAnnotationSettings').style.display = 'none';
+                this.deactivateFromViewports();
+            }
+        });
     }
 
     /**
@@ -519,8 +533,12 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
             viewport.style.cursor = '';
             if (viewport._textAnnotationHandler) {
                 viewport.removeEventListener('click', viewport._textAnnotationHandler);
+                delete viewport._textAnnotationHandler; // Clear the reference
             }
         });
+
+        // Also hide any open dialogs
+        this.hideInputDialog();
     }
 
     /**

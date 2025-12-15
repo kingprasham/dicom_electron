@@ -128,7 +128,7 @@ window.DICOM_VIEWER.PrintManager = class {
     }
 
     /**
-     * Capture EXACT viewport state including layout, images, W/L, shapes
+     * Capture EXACT viewport state including layout, images, W/L, shapes, and text annotations
      */
     async captureCurrentViewportState() {
         const viewportContainer = document.getElementById('viewport-container');
@@ -162,8 +162,29 @@ window.DICOM_VIEWER.PrintManager = class {
 
                 if (!hasImage) continue;
 
-                // Capture viewport data
-                const dataUrl = canvas.toDataURL('image/png', this.printSettings.quality === 'high' ? 1.0 : 0.8);
+                // Check if viewport has text annotations
+                const textAnnotations = viewport.querySelectorAll('.text-annotation');
+                let dataUrl;
+
+                if (textAnnotations.length > 0 && typeof html2canvas !== 'undefined') {
+                    // Use html2canvas to capture viewport with annotations
+                    try {
+                        const captureCanvas = await html2canvas(viewport, {
+                            backgroundColor: '#000',
+                            scale: this.printSettings.quality === 'high' ? 2 : 1,
+                            logging: false,
+                            useCORS: true,
+                            allowTaint: true
+                        });
+                        dataUrl = captureCanvas.toDataURL('image/png', this.printSettings.quality === 'high' ? 1.0 : 0.8);
+                    } catch (html2canvasError) {
+                        console.warn('html2canvas failed, falling back to canvas capture:', html2canvasError);
+                        dataUrl = canvas.toDataURL('image/png', this.printSettings.quality === 'high' ? 1.0 : 0.8);
+                    }
+                } else {
+                    // Standard canvas capture (no annotations)
+                    dataUrl = canvas.toDataURL('image/png', this.printSettings.quality === 'high' ? 1.0 : 0.8);
+                }
 
                 // Get viewport state
                 const viewportState = cornerstone.getViewport(viewport);
