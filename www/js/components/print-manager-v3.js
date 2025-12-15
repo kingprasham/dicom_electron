@@ -364,11 +364,11 @@ window.DICOM_VIEWER.PrintManager = class {
                             </h6>
                             <div class="row g-3 mb-4">
                                 <div class="col-md-4">
-                                    <div class="print-type-card active" data-type="viewport">
-                                        <input type="radio" name="printType" value="viewport" checked hidden>
+                                    <div class="print-type-card active" data-type="currentLayout">
+                                        <input type="radio" name="printType" value="currentLayout" checked hidden>
                                         <i class="bi bi-grid-3x3 fs-3 text-primary mb-2"></i>
                                         <h6 class="mb-1">Current View</h6>
-                                        <small class="text-muted">Print exactly what you see<br>with all adjustments</small>
+                                        <small class="text-muted">Print exactly what you see<br>on screen</small>
                                     </div>
                                 </div>
                                 <div class="col-md-4">
@@ -376,7 +376,7 @@ window.DICOM_VIEWER.PrintManager = class {
                                         <input type="radio" name="printType" value="allImages" hidden>
                                         <i class="bi bi-images fs-3 text-warning mb-2"></i>
                                         <h6 class="mb-1">All Images</h6>
-                                        <small class="text-muted">Print all ${state.currentSeriesImages?.length || 0} images<br>using current layout</small>
+                                        <small class="text-muted">Print all ${state.currentSeriesImages?.length || 0} images<br>on multiple pages</small>
                                     </div>
                                 </div>
                                 <div class="col-md-4">
@@ -762,8 +762,9 @@ window.DICOM_VIEWER.PrintManager = class {
         this.selectedPrinter = selectedPrinter;
 
         try {
-            if (printType === 'viewport') {
-                await this.printViewport(previewOnly);
+            if (printType === 'viewport' || printType === 'currentLayout') {
+                // Use html2canvas to capture exact screen layout
+                await this.printCurrentLayout(previewOnly);
             } else if (printType === 'allImages') {
                 // Auto-detect current layout from viewport-container CSS grid
                 const viewportContainer = document.getElementById('viewport-container');
@@ -847,8 +848,278 @@ window.DICOM_VIEWER.PrintManager = class {
     }
 
     /**
-     * Print All Images - Creates multi-page print with all series images
-     * Captures images from the current viewports in their current state
+     * Print Current Layout - Captures the EXACT layout as seen in viewer using html2canvas
+     * This ensures asymmetric layouts, custom grids, and all configurations print correctly
+     */
+    async printCurrentLayout(previewOnly = false) {
+        this.showLoadingModal('Capturing current layout...', 0);
+
+        try {
+            const viewportContainer = document.getElementById('viewport-container');
+            if (!viewportContainer) {
+                throw new Error('Viewport container not found');
+            }
+
+            // Check if any images are loaded
+            const viewports = viewportContainer.querySelectorAll('.viewport');
+            let hasImages = false;
+            for (const vp of viewports) {
+                try {
+                    const enabledElement = cornerstone.getEnabledElement(vp);
+                    if (enabledElement && enabledElement.image) {
+                        hasImages = true;
+                        break;
+                    }
+                } catch (e) { }
+            }
+
+            if (!hasImages) {
+                this.showToast('No images loaded to print', 'warning');
+                this.hideLoadingModal();
+                return;
+            }
+
+            this.updateLoadingProgress('Capturing viewport layout...', 30);
+
+            // Use html2canvas to capture the exact layout
+            const canvas = await html2canvas(viewportContainer, {
+                backgroundColor: '#000000',
+                scale: 2, // High resolution
+                logging: false,
+                useCORS: true,
+                allowTaint: true,
+                onclone: (clonedDoc) => {
+                    // Fix cloned canvas elements by copying image data
+                    const clonedContainer = clonedDoc.getElementById('viewport-container');
+                    const originalViewports = viewportContainer.querySelectorAll('.viewport');
+                    const clonedViewports = clonedContainer.querySelectorAll('.viewport');
+
+                    originalViewports.forEach((origVp, idx) => {
+                        const origCanvas = origVp.querySelector('canvas');
+                        const clonedCanvas = clonedViewports[idx]?.querySelector('canvas');
+                        if (origCanvas && clonedCanvas) {
+                            const ctx = clonedCanvas.getContext('2d');
+                            clonedCanvas.width = origCanvas.width;
+                            clonedCanvas.height = origCanvas.height;
+                            ctx.drawImage(origCanvas, 0, 0);
+                        }
+                    });
+                }
+            });
+
+            this.updateLoadingProgress('Generating print document...', 60);
+
+            const imageDataUrl = canvas.toDataURL('image/png', 1.0);
+
+            // Get patient info
+            const state = window.DICOM_VIEWER.STATE;
+            const currentImage = state.currentSeriesImages?.[state.currentImageIndex] || {};
+            const patientInfo = {
+                name: currentImage.patient_name || currentImage.patientName || 'Unknown Patient',
+                id: currentImage.patient_id || currentImage.patientId || '',
+                studyDate: currentImage.study_date || currentImage.studyDate || new Date().toLocaleDateString(),
+                institution: this.hospitalSettings?.hospital_name || 'Medical Imaging Center'
+            };
+
+            // Count loaded viewports
+            let loadedCount = 0;
+            for (const vp of viewports) {
+                try {
+                    const ee = cornerstone.getEnabledElement(vp);
+                    if (ee && ee.image) loadedCount++;
+                } catch (e) { }
+            }
+
+            this.updateLoadingProgress('Opening print preview...', 80);
+
+            // Generate simple single-image print HTML
+            const printHTML = this.generateLayoutPrintHTML(imageDataUrl, patientInfo, loadedCount, previewOnly);
+
+            const printWindow = window.open('', '_blank', 'width=1200,height=900');
+            if (!printWindow) {
+                throw new Error('Please allow popups to print');
+            }
+
+            printWindow.document.write(printHTML);
+            printWindow.document.close();
+
+            this.updateLoadingProgress('Complete!', 100);
+
+            if (!previewOnly) {
+                setTimeout(() => {
+                    printWindow.print();
+                }, 500);
+            }
+
+        } catch (error) {
+            console.error('Layout print error:', error);
+            this.showToast('Print failed: ' + error.message, 'error');
+        } finally {
+            this.hideLoadingModal();
+        }
+    }
+
+    /**
+     * Generate HTML for layout screenshot print
+     */
+    generateLayoutPrintHTML(imageDataUrl, patientInfo, viewportCount, previewOnly) {
+        const settings = this.printSettings;
+        const marginValues = { none: 0, narrow: 5, normal: 10, wide: 20 };
+        const margin = marginValues[settings.margins] || 10;
+
+        return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DICOM Print - ${patientInfo.name} - ${new Date().toLocaleDateString()}</title>
+    <style>
+        @page {
+            size: ${settings.paperSize} ${settings.orientation};
+            margin: ${margin}mm;
+        }
+
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+            color: ${previewOnly ? '#fff' : '#000'};
+        }
+
+        .print-toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .print-toolbar h4 {
+            color: #fff;
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .btn-print {
+            background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .btn-close {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .print-page {
+            width: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '297mm' : '210mm') : (settings.orientation === 'landscape' ? '279mm' : '216mm')};
+            min-height: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '210mm' : '297mm') : (settings.orientation === 'landscape' ? '216mm' : '279mm')};
+            padding: 10mm;
+            margin: ${previewOnly ? '60px auto 20px' : '0 auto'};
+            background: #fff;
+            color: #000;
+            box-shadow: ${previewOnly ? '0 4px 20px rgba(0,0,0,0.4)' : 'none'};
+        }
+
+        .page-header {
+            border-bottom: 2px solid #0d6efd;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .hospital-info h2 { color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
+        .hospital-info p { font-size: 11px; color: #666; }
+        .patient-info { text-align: right; font-size: 11px; }
+        .patient-info strong { font-size: 13px; color: #333; }
+
+        .layout-image {
+            width: 100%;
+            height: auto;
+            max-height: ${settings.orientation === 'landscape' ? '150mm' : '220mm'};
+            object-fit: contain;
+            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
+            border-radius: 4px;
+        }
+
+        .page-footer {
+            border-top: 1px solid #ddd;
+            padding-top: 8px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    ${previewOnly ? `
+    <div class="print-toolbar no-print">
+        <h4>📄 Print Preview - Current Layout (${viewportCount} viewports)</h4>
+        <div>
+            <button class="btn-print" onclick="window.print()">🖨️ Print Now</button>
+            <button class="btn-close" onclick="window.close()">✕ Close</button>
+        </div>
+    </div>
+    ` : ''}
+
+    <div class="print-page">
+        <div class="page-header">
+            <div class="header-content">
+                <div class="hospital-info">
+                    <h2>${patientInfo.institution}</h2>
+                    <p>Medical Imaging Department</p>
+                </div>
+                <div class="patient-info">
+                    <strong>${patientInfo.name}</strong><br>
+                    ${patientInfo.id ? `ID: ${patientInfo.id}<br>` : ''}
+                    Study: ${patientInfo.studyDate}
+                </div>
+            </div>
+        </div>
+
+        <img class="layout-image" src="${imageDataUrl}" alt="Current Layout">
+
+        <div class="page-footer">
+            <div>${viewportCount} viewport layout</div>
+            <div>Printed: ${new Date().toLocaleString()}</div>
+        </div>
+    </div>
+</body>
+</html>`;
+    }
+
+    /**
+     * Print All Images - Creates multi-page print preserving current layout
+     * Uses html2canvas to capture each page-worth of images in the exact viewer layout
      */
     async printAllImages(layout, previewOnly = false) {
         const state = window.DICOM_VIEWER.STATE;
@@ -859,11 +1130,18 @@ window.DICOM_VIEWER.PrintManager = class {
             return;
         }
 
-        const [rows, cols] = layout.split('x').map(Number);
-        const imagesPerPage = rows * cols;
-        const totalPages = Math.ceil(images.length / imagesPerPage);
+        const viewportContainer = document.getElementById('viewport-container');
+        const viewports = viewportContainer.querySelectorAll('.viewport');
+        const viewportCount = viewports.length;
 
-        this.showLoadingModal(`Preparing ${images.length} images for printing...`, 0);
+        if (viewportCount === 0) {
+            this.showToast('No viewports found', 'warning');
+            return;
+        }
+
+        const totalPages = Math.ceil(images.length / viewportCount);
+
+        this.showLoadingModal(`Preparing ${images.length} images for printing (${totalPages} pages)...`, 0);
 
         try {
             // Get patient info
@@ -871,82 +1149,124 @@ window.DICOM_VIEWER.PrintManager = class {
             const patientInfo = {
                 name: currentImage.patient_name || currentImage.patientName || 'Unknown Patient',
                 id: currentImage.patient_id || currentImage.patientId || '',
-                age: currentImage.patient_age || currentImage.patientAge || '',
-                sex: currentImage.patient_sex || currentImage.patientSex || '',
                 studyDate: currentImage.study_date || currentImage.studyDate || new Date().toLocaleDateString(),
-                studyDescription: currentImage.study_description || currentImage.studyDescription || '',
-                institution: this.hospitalSettings?.hospital_name || 'Medical Imaging Center',
-                accessionNumber: currentImage.accession_number || ''
+                institution: this.hospitalSettings?.hospital_name || 'Medical Imaging Center'
             };
 
-            // Capture all image data URLs by loading into first viewport
-            const capturedImages = [];
-            const viewportElement = document.querySelector('.viewport');
+            // Capture screenshots of each page-worth of images
+            const pageScreenshots = [];
 
-            if (!viewportElement) {
-                throw new Error('No viewport found');
+            // Store original viewport images to restore later
+            const originalImages = [];
+            for (let i = 0; i < viewports.length; i++) {
+                try {
+                    const ee = cornerstone.getEnabledElement(viewports[i]);
+                    if (ee && ee.image) {
+                        originalImages[i] = ee.image.imageId;
+                    }
+                } catch (e) {
+                    originalImages[i] = null;
+                }
             }
 
-            for (let i = 0; i < images.length; i++) {
-                this.updateLoadingProgress(`Capturing image ${i + 1} of ${images.length}...`, Math.round((i / images.length) * 80));
+            for (let page = 0; page < totalPages; page++) {
+                const startIdx = page * viewportCount;
+                const pageImages = images.slice(startIdx, startIdx + viewportCount);
 
-                try {
-                    // Get the imageId - it might be stored in different ways
-                    const img = images[i];
-                    let imageId = img.imageId || img.image_id;
+                this.updateLoadingProgress(`Capturing page ${page + 1} of ${totalPages}...`, Math.round(((page + 1) / totalPages) * 70));
 
-                    // If imageId not directly available, construct it from orthancInstanceId
-                    if (!imageId && img.orthancInstanceId) {
-                        const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
-                        imageId = `wadouri:${basePath}/api/get_dicom_from_orthanc.php?instanceId=${img.orthancInstanceId}`;
-                    }
+                // Load images into viewports for this page
+                for (let i = 0; i < viewports.length; i++) {
+                    const viewport = viewports[i];
+                    const img = pageImages[i];
 
-                    if (!imageId && img.instanceId) {
-                        const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
-                        imageId = `wadouri:${basePath}/api/get_dicom_from_orthanc.php?instanceId=${img.instanceId}`;
-                    }
+                    if (img) {
+                        try {
+                            let imageId = img.imageId || img.image_id;
 
-                    if (imageId) {
-                        // Load and display image
-                        const loadedImage = await cornerstone.loadImage(imageId);
-                        await cornerstone.displayImage(viewportElement, loadedImage);
+                            if (!imageId && img.orthancInstanceId) {
+                                const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
+                                imageId = `wadouri:${basePath}/api/get_dicom_from_orthanc.php?instanceId=${img.orthancInstanceId}`;
+                            }
 
-                        // Wait for render
-                        await new Promise(resolve => setTimeout(resolve, 50));
+                            if (!imageId && img.instanceId) {
+                                const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
+                                imageId = `wadouri:${basePath}/api/get_dicom_from_orthanc.php?instanceId=${img.instanceId}`;
+                            }
 
-                        const canvas = viewportElement.querySelector('canvas');
-                        if (canvas) {
-                            capturedImages.push({
-                                dataUrl: canvas.toDataURL('image/png', 0.85),
-                                index: i + 1
-                            });
-                        } else {
-                            throw new Error('Canvas not found');
+                            if (imageId) {
+                                const loadedImage = await cornerstone.loadImage(imageId);
+                                await cornerstone.displayImage(viewport, loadedImage);
+                            }
+                        } catch (err) {
+                            console.warn(`Error loading image ${i} for page ${page}:`, err);
                         }
                     } else {
-                        console.warn(`No imageId for image ${i}`, img);
-                        capturedImages.push({
-                            dataUrl: null,
-                            index: i + 1,
-                            error: true
-                        });
+                        // Clear viewport if no image for this slot
+                        try {
+                            cornerstone.reset(viewport);
+                        } catch (e) { }
                     }
+                }
+
+                // Wait for all images to render
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                // Capture the viewport container using html2canvas
+                try {
+                    const canvas = await html2canvas(viewportContainer, {
+                        backgroundColor: '#000000',
+                        scale: 2,
+                        logging: false,
+                        useCORS: true,
+                        allowTaint: true,
+                        onclone: (clonedDoc) => {
+                            const clonedContainer = clonedDoc.getElementById('viewport-container');
+                            const clonedViewports = clonedContainer.querySelectorAll('.viewport');
+
+                            viewports.forEach((origVp, idx) => {
+                                const origCanvas = origVp.querySelector('canvas');
+                                const clonedCanvas = clonedViewports[idx]?.querySelector('canvas');
+                                if (origCanvas && clonedCanvas) {
+                                    const ctx = clonedCanvas.getContext('2d');
+                                    clonedCanvas.width = origCanvas.width;
+                                    clonedCanvas.height = origCanvas.height;
+                                    ctx.drawImage(origCanvas, 0, 0);
+                                }
+                            });
+                        }
+                    });
+
+                    pageScreenshots.push({
+                        dataUrl: canvas.toDataURL('image/png', 1.0),
+                        pageNum: page + 1,
+                        imageCount: pageImages.length
+                    });
                 } catch (err) {
-                    console.error(`Error capturing image ${i}:`, err);
-                    capturedImages.push({
+                    console.error(`Error capturing page ${page + 1}:`, err);
+                    pageScreenshots.push({
                         dataUrl: null,
-                        index: i + 1,
+                        pageNum: page + 1,
                         error: true
                     });
                 }
             }
 
-            this.updateLoadingProgress('Generating print document...', 85);
+            // Restore original images in viewports
+            this.updateLoadingProgress('Restoring original state...', 80);
+            for (let i = 0; i < viewports.length && i < originalImages.length; i++) {
+                if (originalImages[i]) {
+                    try {
+                        const loadedImage = await cornerstone.loadImage(originalImages[i]);
+                        await cornerstone.displayImage(viewports[i], loadedImage);
+                    } catch (e) { }
+                }
+            }
 
-            console.log(`Captured ${capturedImages.filter(i => i.dataUrl).length} of ${images.length} images`);
+            this.updateLoadingProgress('Generating print document...', 90);
 
-            // Generate multi-page HTML
-            const printHTML = this.generateAllImagesPrintHTML(capturedImages, patientInfo, layout, totalPages, previewOnly);
+            // Generate multi-page HTML from screenshots
+            const printHTML = this.generateAllImagesScreenshotHTML(pageScreenshots, patientInfo, viewportCount, previewOnly);
 
             const printWindow = window.open('', '_blank', 'width=1200,height=900');
             if (!printWindow) {
@@ -970,6 +1290,238 @@ window.DICOM_VIEWER.PrintManager = class {
         } finally {
             this.hideLoadingModal();
         }
+    }
+
+    /**
+     * Generate HTML for all images print using page screenshots
+     */
+    generateAllImagesScreenshotHTML(pageScreenshots, patientInfo, viewportCount, previewOnly) {
+        const settings = this.printSettings;
+        const marginValues = { none: 0, narrow: 5, normal: 10, wide: 20 };
+        const margin = marginValues[settings.margins] || 10;
+        const totalPages = pageScreenshots.length;
+
+        const pagesHTML = pageScreenshots.map((page, idx) => {
+            if (page.error || !page.dataUrl) {
+                return `
+                    <div class="print-page" data-page="${page.pageNum}">
+                        <div class="page-header">
+                            <div class="header-content">
+                                <div class="hospital-info">
+                                    <h2>${patientInfo.institution}</h2>
+                                    <p>Medical Imaging Department</p>
+                                </div>
+                                <div class="patient-info">
+                                    <strong>${patientInfo.name}</strong><br>
+                                    ${patientInfo.id ? `ID: ${patientInfo.id}<br>` : ''}
+                                    Study: ${patientInfo.studyDate}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="error-page">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <p>Error capturing page ${page.pageNum}</p>
+                        </div>
+                        <div class="page-footer">
+                            <div>Page ${page.pageNum} of ${totalPages}</div>
+                            <div>Printed: ${new Date().toLocaleString()}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="print-page" data-page="${page.pageNum}">
+                    <div class="page-header">
+                        <div class="header-content">
+                            <div class="hospital-info">
+                                <h2>${patientInfo.institution}</h2>
+                                <p>Medical Imaging Department</p>
+                            </div>
+                            <div class="patient-info">
+                                <strong>${patientInfo.name}</strong><br>
+                                ${patientInfo.id ? `ID: ${patientInfo.id}<br>` : ''}
+                                Study: ${patientInfo.studyDate}
+                            </div>
+                        </div>
+                    </div>
+                    <img class="page-image" src="${page.dataUrl}" alt="Page ${page.pageNum}">
+                    <div class="page-footer">
+                        <div>Page ${page.pageNum} of ${totalPages} (${page.imageCount} images)</div>
+                        <div>Printed: ${new Date().toLocaleString()}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DICOM Print - All Images - ${patientInfo.name}</title>
+    <style>
+        @page {
+            size: ${settings.paperSize} ${settings.orientation};
+            margin: ${margin}mm;
+        }
+
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            .print-page { page-break-after: always; margin-bottom: 0 !important; box-shadow: none !important; }
+            .print-page:last-child { page-break-after: avoid; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+            color: ${previewOnly ? '#fff' : '#000'};
+        }
+
+        .print-toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .print-toolbar h4 { color: #fff; margin: 0; font-size: 16px; }
+        
+        .btn-print {
+            background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .btn-close {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .print-page {
+            width: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '297mm' : '210mm') : (settings.orientation === 'landscape' ? '279mm' : '216mm')};
+            min-height: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '210mm' : '297mm') : (settings.orientation === 'landscape' ? '216mm' : '279mm')};
+            padding: 10mm;
+            margin: ${previewOnly ? '60px auto 20px' : '0 auto'};
+            background: #fff;
+            color: #000;
+            box-shadow: ${previewOnly ? '0 4px 20px rgba(0,0,0,0.4)' : 'none'};
+        }
+
+        .page-header {
+            border-bottom: 2px solid #0d6efd;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .hospital-info h2 { color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
+        .hospital-info p { font-size: 11px; color: #666; }
+        .patient-info { text-align: right; font-size: 11px; }
+        .patient-info strong { font-size: 13px; color: #333; }
+
+        .page-image {
+            width: 100%;
+            height: auto;
+            max-height: ${settings.orientation === 'landscape' ? '150mm' : '220mm'};
+            object-fit: contain;
+            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
+            border-radius: 4px;
+        }
+
+        .error-page {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 150mm;
+            color: #dc3545;
+            font-size: 18px;
+        }
+
+        .error-page i { font-size: 48px; margin-bottom: 15px; }
+
+        .page-footer {
+            border-top: 1px solid #ddd;
+            padding-top: 8px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #666;
+        }
+
+        .page-nav {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            z-index: 1001;
+        }
+
+        .page-nav-item {
+            width: 30px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .page-nav-item:hover { background: rgba(13, 110, 253, 0.5); border-color: #0d6efd; }
+    </style>
+</head>
+<body>
+    ${previewOnly ? `
+    <div class="print-toolbar no-print">
+        <h4>📄 Print Preview - All Images on ${totalPages} Pages (${viewportCount}-viewport layout)</h4>
+        <div>
+            <button class="btn-print" onclick="window.print()">🖨️ Print All Pages</button>
+            <button class="btn-close" onclick="window.close()">✕ Close</button>
+        </div>
+    </div>
+    <div class="page-nav no-print">
+        ${pageScreenshots.map((_, i) => `<div class="page-nav-item" title="Page ${i + 1}" onclick="document.querySelector('[data-page=\\'${i + 1}\\']').scrollIntoView({behavior:'smooth'})">${i + 1}</div>`).join('')}
+    </div>
+    ` : ''}
+
+    ${pagesHTML}
+</body>
+</html>`;
     }
 
     /**
