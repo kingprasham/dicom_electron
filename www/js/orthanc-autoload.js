@@ -123,6 +123,13 @@
             if (window.DICOM_VIEWER && window.DICOM_VIEWER.loadImageSeries) {
                 window.DICOM_VIEWER.populateSeriesList(formattedImages);
                 await window.DICOM_VIEWER.loadImageSeries(formattedImages);
+
+                // Trigger page navigator refresh after images load
+                setTimeout(() => {
+                    if (window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.pageNavigator) {
+                        window.DICOM_VIEWER.MANAGERS.pageNavigator.refresh();
+                    }
+                }, 500);
             } else {
                 throw new Error('DICOM Viewer not initialized. Please refresh the page.');
             }

@@ -729,6 +729,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
     <script src="<?= BASE_PATH ?>/js/components/export-manager.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/print-manager-v3.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/image-overview-modal.js?v=<?= time() ?>"></script>
+    <script src="<?= BASE_PATH ?>/js/components/viewer-page-navigator.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/settings-manager.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/mobile-controls.js?v=<?= time() ?>"></script>
     <script src="<?= BASE_PATH ?>/js/components/mpr-button-handlers.js?v=<?= time() ?>"></script>
