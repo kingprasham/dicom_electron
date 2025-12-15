@@ -1977,121 +1977,159 @@ window.DICOM_VIEWER.applyWindowLevel = function (windowWidth, windowLevel) {
 window.DICOM_VIEWER.resetActiveViewport = function () {
     const state = window.DICOM_VIEWER.STATE;
 
-    // Get the active viewport only (not all viewports)
-    const targetViewport = state.activeViewport ||
-        (window.DICOM_VIEWER.MANAGERS.viewportManager ?
-            window.DICOM_VIEWER.MANAGERS.viewportManager.getAllViewports()[0] :
-            document.querySelector('.viewport'));
+    // === PRIORITY: DEACTIVATE ALL TOOLS FIRST (applies globally) ===
+    const allTools = ['Pan', 'Zoom', 'Wwwc', 'Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'];
+    allTools.forEach(toolName => {
+        try {
+            cornerstoneTools.setToolDisabled(toolName);
+            // Set annotation tools to passive so existing annotations stay visible
+            if (['Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'].includes(toolName)) {
+                cornerstoneTools.setToolPassive(toolName);
+            }
+        } catch (e) { /* Tool might not exist */ }
+    });
 
-    if (!targetViewport) {
-        console.error('No active viewport found to reset');
+    // Reset active tool in state
+    state.activeTool = null;
+
+    // Reset all tool button UI
+    const toolButtons = document.querySelectorAll('.tool-btn[data-tool]');
+    toolButtons.forEach(btn => {
+        btn.classList.remove('btn-primary', 'active');
+        btn.classList.add('btn-secondary');
+        btn.removeAttribute('aria-pressed');
+        btn.style.transform = '';
+    });
+
+    // === DETERMINE WHICH VIEWPORTS TO RESET ===
+    let viewportsToReset = [];
+    let resetMode = 'active'; // 'all', 'selected', or 'active'
+
+    // Priority 1: If Select All is checked, reset ALL viewports
+    if (state.allViewportsSelected) {
+        const allViewports = document.querySelectorAll('.viewport');
+        viewportsToReset = Array.from(allViewports);
+        resetMode = 'all';
+        console.log('Reset mode: ALL viewports (Select All is active)');
+    }
+    // Priority 2: If specific viewports are selected, reset those
+    else if (state.selectedViewports && state.selectedViewports.size > 0) {
+        state.selectedViewports.forEach(viewportId => {
+            const vp = document.getElementById(viewportId);
+            if (vp) viewportsToReset.push(vp);
+        });
+        resetMode = 'selected';
+        console.log(`Reset mode: ${viewportsToReset.length} selected viewports`);
+    }
+    // Priority 3: Fall back to active viewport
+    else {
+        const targetViewport = state.activeViewport ||
+            (window.DICOM_VIEWER.MANAGERS.viewportManager ?
+                window.DICOM_VIEWER.MANAGERS.viewportManager.getAllViewports()[0] :
+                document.querySelector('.viewport'));
+        if (targetViewport) {
+            viewportsToReset = [targetViewport];
+        }
+        resetMode = 'active';
+        console.log('Reset mode: Active viewport only');
+    }
+
+    if (viewportsToReset.length === 0) {
+        console.error('No viewports found to reset');
+        window.DICOM_VIEWER.showAISuggestion('No viewports to reset', 'warning');
         return;
     }
 
-    try {
-        // === PRIORITY: DEACTIVATE ALL TOOLS FIRST ===
-        const allTools = ['Pan', 'Zoom', 'Wwwc', 'Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'];
-        allTools.forEach(toolName => {
-            try {
-                // Cancel any in-progress drawing by setting to disabled then passive
-                cornerstoneTools.setToolDisabled(toolName);
-                // Set annotation tools to passive so existing annotations stay visible
-                if (['Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'].includes(toolName)) {
-                    cornerstoneTools.setToolPassive(toolName);
-                }
-                console.log(`Deactivated tool: ${toolName}`);
-            } catch (e) {
-                // Tool might not exist
-            }
-        });
+    // === RESET EACH VIEWPORT ===
+    let resetCount = 0;
+    const annotationTools = ['Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'];
 
-        // Reset active tool in state
-        state.activeTool = null;
-        console.log('Reset active tool state');
-
-        // Reset all tool button UI
-        const toolsPanel = document.getElementById('tools-panel') || document;
-        const toolButtons = toolsPanel.querySelectorAll('.tool-btn[data-tool]');
-        toolButtons.forEach(btn => {
-            btn.classList.remove('btn-primary', 'active');
-            btn.classList.add('btn-secondary');
-            btn.removeAttribute('aria-pressed');
-            btn.style.transform = '';
-        });
-        console.log('Reset tool button UI');
-
-        // === NOW CLEAR TOOL STATE ===
-        const enabledElement = cornerstone.getEnabledElement(targetViewport);
-        if (!enabledElement || !enabledElement.image) {
-            console.error('Viewport does not have an enabled image');
-            return;
-        }
-
-        // Clear all tool annotations/measurements from this viewport
-        const imageId = enabledElement.image.imageId;
-
-        // Method 1: Clear from global image-specific tool state manager
-        const toolStateManager = cornerstoneTools.globalImageIdSpecificToolStateManager;
-        if (toolStateManager && imageId) {
-            const toolState = toolStateManager.toolState;
-            if (toolState && toolState[imageId]) {
-                delete toolState[imageId];
-                console.log('Cleared tool state from globalImageIdSpecificToolStateManager');
-            }
-        }
-
-        // Method 2: Clear from element-specific tool state manager
+    viewportsToReset.forEach(viewport => {
         try {
-            const elementToolStateManager = cornerstoneTools.getElementToolStateManager(targetViewport);
-            if (elementToolStateManager) {
-                elementToolStateManager.clear(targetViewport);
-                console.log('Cleared tool state from elementToolStateManager');
+            const enabledElement = cornerstone.getEnabledElement(viewport);
+            if (!enabledElement || !enabledElement.image) {
+                console.log(`Skipping viewport ${viewport.id} - no image loaded`);
+                return;
             }
-        } catch (e) {
-            console.log('elementToolStateManager not available');
-        }
 
-        // Method 3: Clear tool state directly from all annotation tools
-        const annotationTools = ['Length', 'Angle', 'FreehandRoi', 'EllipticalRoi', 'RectangleRoi', 'Probe'];
-        annotationTools.forEach(toolName => {
+            const imageId = enabledElement.image.imageId;
+
+            // Clear from global tool state manager
+            const toolStateManager = cornerstoneTools.globalImageIdSpecificToolStateManager;
+            if (toolStateManager && imageId) {
+                const toolState = toolStateManager.toolState;
+                if (toolState && toolState[imageId]) {
+                    delete toolState[imageId];
+                }
+            }
+
+            // Clear from element-specific tool state manager
             try {
-                cornerstoneTools.clearToolState(targetViewport, toolName);
-                console.log(`Cleared ${toolName} tool state`);
-            } catch (e) {
-                // Tool might not have any state
+                const elementToolStateManager = cornerstoneTools.getElementToolStateManager(viewport);
+                if (elementToolStateManager) {
+                    elementToolStateManager.clear(viewport);
+                }
+            } catch (e) { }
+
+            // Clear tool state directly from all annotation tools
+            annotationTools.forEach(toolName => {
+                try {
+                    cornerstoneTools.clearToolState(viewport, toolName);
+                } catch (e) { }
+            });
+
+            // Clear text annotations
+            const textAnnotations = viewport.querySelectorAll('.text-annotation');
+            textAnnotations.forEach(ann => ann.remove());
+
+            // Clear custom pencil drawings
+            if (window.DICOM_VIEWER.MANAGERS.drawingManager) {
+                window.DICOM_VIEWER.MANAGERS.drawingManager.clearViewportDrawings(viewport);
             }
-        });
+            // Also clear drawing overlay canvas directly
+            const drawingOverlay = viewport.querySelector('.drawing-overlay');
+            if (drawingOverlay) {
+                const ctx = drawingOverlay.getContext('2d');
+                ctx.clearRect(0, 0, drawingOverlay.width, drawingOverlay.height);
+            }
 
-        // Clear text annotations too
-        const textAnnotations = targetViewport.querySelectorAll('.text-annotation');
-        textAnnotations.forEach(ann => ann.remove());
-        console.log(`Cleared ${textAnnotations.length} text annotations`);
+            // Reset Cornerstone viewport (zoom, pan, W/L to default)
+            cornerstone.reset(viewport);
 
-        // Reset Cornerstone viewport (zoom, pan, W/L to default)
-        cornerstone.reset(targetViewport);
+            // Reset enhancements
+            if (window.DICOM_VIEWER.MANAGERS.enhancementManager) {
+                window.DICOM_VIEWER.MANAGERS.enhancementManager.resetEnhancement(viewport);
+            }
 
-        // Reset enhancements
-        if (window.DICOM_VIEWER.MANAGERS.enhancementManager) {
-            window.DICOM_VIEWER.MANAGERS.enhancementManager.resetEnhancement(targetViewport);
+            // Force viewport update
+            cornerstone.updateImage(viewport);
+
+            resetCount++;
+            console.log(`Reset viewport: ${viewport.id || 'unnamed'}`);
+
+        } catch (error) {
+            console.error(`Error resetting viewport:`, error);
         }
+    });
 
-        // Force viewport update to reflect changes
-        cornerstone.updateImage(targetViewport);
+    // Reset UI controls
+    const brightnessSlider = document.getElementById('brightnessSlider');
+    const contrastSlider = document.getElementById('contrastSlider');
+    const sharpenSlider = document.getElementById('sharpenSlider');
 
-        // Reset UI controls
-        const brightnessSlider = document.getElementById('brightnessSlider');
-        const contrastSlider = document.getElementById('contrastSlider');
-        const sharpenSlider = document.getElementById('sharpenSlider');
+    if (brightnessSlider) brightnessSlider.value = 0;
+    if (contrastSlider) contrastSlider.value = 1;
+    if (sharpenSlider) sharpenSlider.value = 0;
 
-        if (brightnessSlider) brightnessSlider.value = 0;
-        if (contrastSlider) contrastSlider.value = 1;
-        if (sharpenSlider) sharpenSlider.value = 0;
+    window.DICOM_VIEWER.updateViewportInfo();
 
-        window.DICOM_VIEWER.updateViewportInfo();
-        window.DICOM_VIEWER.showAISuggestion('Reset complete: All tools deactivated, annotations cleared, zoom/pan/W-L restored');
-
-    } catch (error) {
-        console.error('Error resetting viewport:', error);
+    // Show appropriate message
+    if (resetMode === 'all') {
+        window.DICOM_VIEWER.showAISuggestion(`Reset complete: ${resetCount} viewports reset (all viewports selected)`);
+    } else if (resetMode === 'selected') {
+        window.DICOM_VIEWER.showAISuggestion(`Reset complete: ${resetCount} selected viewport(s) reset`);
+    } else {
+        window.DICOM_VIEWER.showAISuggestion('Reset complete: Active viewport reset');
     }
 };
 

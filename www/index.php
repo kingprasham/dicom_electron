@@ -486,7 +486,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     </ul>
                 </div>
                 <button class="btn btn-info" id="medicalReportBtn" title="Medical Report"><i class="bi bi-file-medical me-1"></i>Report</button>
-                <button class="btn btn-warning" id="viewAllImagesBtn" title="View All Images Overview"><i class="bi bi-images me-1"></i>All</button>
+
                 <button class="btn btn-secondary" id="printBtn" title="Print DICOM Image"><i class="bi bi-printer me-1"></i>Print</button>
                 <button class="btn btn-secondary" id="settingsBtn" title="Settings"><i class="bi bi-gear me-1"></i>Settings</button>
                 <button class="btn btn-secondary" id="fullscreenBtn" title="Fullscreen"><i class="bi bi-arrows-fullscreen"></i></button>
@@ -622,9 +622,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     <div class="col"><button id="textAnnotationBtn" data-tool="TextAnnotation"
                             class="btn btn-secondary w-100 tool-btn d-flex flex-column justify-content-center align-items-center" title="Add Text Annotation (T)"><i
                                 class="bi bi-fonts"></i><span class="small">Text</span></button></div>
-                    <div class="col"><button id="resetBtn"
-                            class="btn btn-secondary w-100 tool-btn d-flex flex-column justify-content-center align-items-center"><i
-                                class="bi bi-arrow-counterclockwise"></i><span class="small">Reset</span></button></div>
+
                     <div class="col"><button id="invertBtn"
                             class="btn btn-secondary w-100 tool-btn d-flex flex-column justify-content-center align-items-center"><i
                                 class="bi bi-circle-half"></i><span class="small">Invert</span></button></div>
@@ -2039,6 +2037,9 @@ $userRole = $_SESSION['role'] ?? 'viewer';
     </script>
 </body>
     <!-- Auto-Backup Scheduler Trigger -->
+    <!-- Custom Drawing Tool Manager (replaces FreehandRoi) -->
+    <script src="<?= BASE_PATH ?>/js/components/drawing-manager.js"></script>
+
     <script>
         (function() {
             // Check for backup every 60 seconds

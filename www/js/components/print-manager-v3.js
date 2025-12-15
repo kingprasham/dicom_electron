@@ -904,6 +904,32 @@ window.DICOM_VIEWER.PrintManager = class {
                             ctx.drawImage(origCanvas, 0, 0);
                         }
                     });
+
+                    // HIDE ALL VIEWPORT OVERLAYS for clean print output
+                    // Hide viewport-info (W/L, Zoom info)
+                    clonedContainer.querySelectorAll('.viewport-info').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    // Hide slice indicators
+                    clonedContainer.querySelectorAll('.slice-indicator').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    // Hide drawing overlays
+                    clonedContainer.querySelectorAll('.drawing-overlay').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    // Hide crosshairs
+                    clonedContainer.querySelectorAll('.crosshair-overlay, .crosshair-line').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    // Hide any other overlays
+                    clonedContainer.querySelectorAll('.viewport-overlay').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    // Remove viewport name pseudo-element labels by clearing data attribute
+                    clonedViewports.forEach(vp => {
+                        vp.removeAttribute('data-viewport-name');
+                    });
                 }
             });
 
@@ -1234,6 +1260,15 @@ window.DICOM_VIEWER.PrintManager = class {
                                     ctx.drawImage(origCanvas, 0, 0);
                                 }
                             });
+
+                            // HIDE ALL VIEWPORT OVERLAYS for clean print output
+                            clonedContainer.querySelectorAll('.viewport-info').forEach(el => el.style.display = 'none');
+                            clonedContainer.querySelectorAll('.slice-indicator').forEach(el => el.style.display = 'none');
+                            clonedContainer.querySelectorAll('.drawing-overlay').forEach(el => el.style.display = 'none');
+                            clonedContainer.querySelectorAll('.crosshair-overlay, .crosshair-line').forEach(el => el.style.display = 'none');
+                            clonedContainer.querySelectorAll('.viewport-overlay').forEach(el => el.style.display = 'none');
+                            // Remove viewport name pseudo-element labels
+                            clonedViewports.forEach(vp => vp.removeAttribute('data-viewport-name'));
                         }
                     });
 
