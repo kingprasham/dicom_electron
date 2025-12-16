@@ -170,8 +170,8 @@ window.DICOM_VIEWER.PrintManager = class {
         // Check layout class first
         const containerClasses = viewportContainer.className;
 
-        // Portrait layouts: 6 (2x3), 8 (2x4), 15 (3x5) - more rows than columns
-        const portraitLayouts = ['layout-spots-6', 'layout-spots-8', 'layout-spots-15'];
+        // Portrait layouts: 6 (2x3), 8 (2x4), 15 (3x5), 18 (6x3) - more rows than columns
+        const portraitLayouts = ['layout-spots-6', 'layout-spots-8', 'layout-spots-15', 'layout-spots-18'];
         for (const layoutClass of portraitLayouts) {
             if (containerClasses.includes(layoutClass)) {
                 console.log(`Auto-detected portrait orientation for ${layoutClass}`);
