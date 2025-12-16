@@ -583,8 +583,10 @@ window.DICOM_VIEWER.loadImageSeries = async function (uploadedFiles) {
 window.DICOM_VIEWER.ThumbnailManager = class {
     constructor() {
         this.thumbnailCache = new Map();
+        this.largeThumbnailCache = new Map(); // Separate cache for high-res thumbnails
         this.loadingThumbnails = new Set();
-        this.thumbnailSize = 80; // pixels
+        this.thumbnailSize = 80; // pixels - base size for small thumbnails
+        this.largeThumbnailSize = 200; // pixels - size for large thumbnails mode
         this.maxConcurrentLoads = 3;
         this.currentLoadCount = 0;
         this.loadQueue = [];
@@ -674,12 +676,77 @@ window.DICOM_VIEWER.ThumbnailManager = class {
     }
 
     async createThumbnailCanvas(image) {
+        // Try Cornerstone's renderToCanvas first (most reliable)
+        try {
+            return await this.createThumbnailWithCornerstone(image, this.thumbnailSize);
+        } catch (e) {
+            console.log('Cornerstone renderToCanvas failed, using manual:', e.message);
+            return await this.createThumbnailManual(image, this.thumbnailSize);
+        }
+    }
+
+    // Use Cornerstone's built-in rendering (handles all DICOM types properly)
+    async createThumbnailWithCornerstone(image, targetSize) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+
+        // Create temp canvas at original size for Cornerstone rendering
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = image.width;
+        tempCanvas.height = image.height;
+
+        // Use Cornerstone's renderToCanvas which handles all image types
+        if (typeof cornerstone.renderToCanvas === 'function') {
+            cornerstone.renderToCanvas(tempCanvas, image);
+        } else {
+            // Fallback: manually render using image's render method or getPixelData
+            throw new Error('renderToCanvas not available');
+        }
+
+        // Calculate scaling
+        const aspectRatio = image.width / image.height;
+        let drawWidth, drawHeight, offsetX = 0, offsetY = 0;
+
+        if (aspectRatio > 1) {
+            drawWidth = targetSize;
+            drawHeight = targetSize / aspectRatio;
+            offsetY = (targetSize - drawHeight) / 2;
+        } else {
+            drawHeight = targetSize;
+            drawWidth = targetSize * aspectRatio;
+            offsetX = (targetSize - drawWidth) / 2;
+        }
+
+        // Fill background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, targetSize, targetSize);
+
+        // Apply high-quality scaling
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // Draw the rendered image
+        ctx.drawImage(tempCanvas, offsetX, offsetY, drawWidth, drawHeight);
+
+        // Add subtle border
+        ctx.strokeStyle = 'rgba(100, 149, 237, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0, 0, targetSize, targetSize);
+
+        return canvas.toDataURL('image/png', 0.9);
+    }
+
+    // Manual rendering method that handles all DICOM formats
+    async createThumbnailManual(image, targetSize) {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
 
         // Set canvas size
-        canvas.width = this.thumbnailSize;
-        canvas.height = this.thumbnailSize;
+        canvas.width = targetSize;
+        canvas.height = targetSize;
 
         // Calculate scaling to maintain aspect ratio
         const aspectRatio = image.width / image.height;
@@ -687,14 +754,14 @@ window.DICOM_VIEWER.ThumbnailManager = class {
 
         if (aspectRatio > 1) {
             // Landscape image
-            drawWidth = this.thumbnailSize;
-            drawHeight = this.thumbnailSize / aspectRatio;
-            offsetY = (this.thumbnailSize - drawHeight) / 2;
+            drawWidth = targetSize;
+            drawHeight = targetSize / aspectRatio;
+            offsetY = (targetSize - drawHeight) / 2;
         } else {
             // Portrait image
-            drawHeight = this.thumbnailSize;
-            drawWidth = this.thumbnailSize * aspectRatio;
-            offsetX = (this.thumbnailSize - drawWidth) / 2;
+            drawHeight = targetSize;
+            drawWidth = targetSize * aspectRatio;
+            offsetX = (targetSize - drawWidth) / 2;
         }
 
         // Create a temporary canvas for image processing
@@ -703,23 +770,39 @@ window.DICOM_VIEWER.ThumbnailManager = class {
         tempCanvas.width = image.width;
         tempCanvas.height = image.height;
 
-        // Get pixel data and apply medical image processing
-        const pixelData = image.getPixelData();
-        const imageData = tempCtx.createImageData(image.width, image.height);
+        // Try to use Cornerstone's render function if available (handles all formats)
+        let rendered = false;
+        try {
+            if (image.render && typeof image.render === 'function') {
+                // Some Cornerstone images have a render method
+                image.render(tempCanvas, tempCtx);
+                rendered = true;
+            } else if (image.getCanvas && typeof image.getCanvas === 'function') {
+                // Try getCanvas method
+                const srcCanvas = image.getCanvas();
+                tempCtx.drawImage(srcCanvas, 0, 0);
+                rendered = true;
+            }
+        } catch (e) {
+            console.log('Cornerstone render method not available, using manual:', e);
+        }
 
-        // Apply optimal window/level for thumbnail visibility
-        const windowWidth = image.windowWidth || this.calculateOptimalWindow(pixelData);
-        const windowCenter = image.windowCenter || this.calculateOptimalLevel(pixelData);
+        if (!rendered) {
+            // Check if this is a color image (RGB, YBR, or has multiple samples per pixel)
+            const isColorImage = this.isColorImage(image);
 
-        // Convert pixel data to RGB with proper windowing
-        this.applyWindowLevel(pixelData, imageData.data, windowWidth, windowCenter, image);
-
-        // Put processed image data to temp canvas
-        tempCtx.putImageData(imageData, 0, 0);
+            if (isColorImage) {
+                // Handle color images (USG, RGB DICOM, etc.)
+                await this.renderColorThumbnail(image, tempCanvas, tempCtx);
+            } else {
+                // Handle grayscale images (CT, MRI, X-Ray, etc.)
+                this.renderGrayscaleThumbnail(image, tempCanvas, tempCtx);
+            }
+        }
 
         // Fill background with black (medical standard)
         ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, this.thumbnailSize, this.thumbnailSize);
+        ctx.fillRect(0, 0, targetSize, targetSize);
 
         // Apply high-quality scaling
         ctx.imageSmoothingEnabled = true;
@@ -731,9 +814,146 @@ window.DICOM_VIEWER.ThumbnailManager = class {
         // Add subtle border for better visibility
         ctx.strokeStyle = 'rgba(100, 149, 237, 0.3)';
         ctx.lineWidth = 1;
-        ctx.strokeRect(0, 0, this.thumbnailSize, this.thumbnailSize);
+        ctx.strokeRect(0, 0, targetSize, targetSize);
 
         return canvas.toDataURL('image/png', 0.9);
+    }
+
+    // Check if image is a color image
+    isColorImage(image) {
+        const photometric = image.photometricInterpretation || '';
+        const samplesPerPixel = image.samplesPerPixel || 1;
+
+        // Color photometric interpretations
+        const colorPhotometrics = [
+            'RGB', 'YBR_FULL', 'YBR_FULL_422', 'YBR_PARTIAL_422',
+            'YBR_PARTIAL_420', 'YBR_RCT', 'YBR_ICT', 'PALETTE COLOR'
+        ];
+
+        return samplesPerPixel > 1 || colorPhotometrics.includes(photometric.toUpperCase());
+    }
+
+    // Render color image thumbnail (USG, RGB images)
+    async renderColorThumbnail(image, canvas, ctx) {
+        const pixelData = image.getPixelData();
+        const imageData = ctx.createImageData(image.width, image.height);
+        const photometric = (image.photometricInterpretation || '').toUpperCase();
+        const samplesPerPixel = image.samplesPerPixel || 3;
+        const planarConfiguration = image.planarConfiguration || 0;
+
+        const numPixels = image.width * image.height;
+
+        // Handle different color formats
+        if (photometric === 'RGB' || photometric.startsWith('YBR')) {
+            if (planarConfiguration === 0) {
+                // Interleaved: RGBRGBRGB...
+                for (let i = 0; i < numPixels; i++) {
+                    const srcIdx = i * samplesPerPixel;
+                    const dstIdx = i * 4;
+
+                    let r, g, b;
+
+                    if (photometric === 'RGB') {
+                        r = pixelData[srcIdx];
+                        g = pixelData[srcIdx + 1];
+                        b = pixelData[srcIdx + 2];
+                    } else {
+                        // YBR to RGB conversion
+                        const y = pixelData[srcIdx];
+                        const cb = pixelData[srcIdx + 1];
+                        const cr = pixelData[srcIdx + 2];
+
+                        // YCbCr to RGB conversion (ITU-R BT.601)
+                        r = Math.round(y + 1.402 * (cr - 128));
+                        g = Math.round(y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128));
+                        b = Math.round(y + 1.772 * (cb - 128));
+                    }
+
+                    // Clamp values to 0-255
+                    imageData.data[dstIdx] = Math.max(0, Math.min(255, r));
+                    imageData.data[dstIdx + 1] = Math.max(0, Math.min(255, g));
+                    imageData.data[dstIdx + 2] = Math.max(0, Math.min(255, b));
+                    imageData.data[dstIdx + 3] = 255;
+                }
+            } else {
+                // Planar: RRR...GGG...BBB...
+                for (let i = 0; i < numPixels; i++) {
+                    const dstIdx = i * 4;
+
+                    let r, g, b;
+
+                    if (photometric === 'RGB') {
+                        r = pixelData[i];
+                        g = pixelData[i + numPixels];
+                        b = pixelData[i + numPixels * 2];
+                    } else {
+                        // YBR to RGB conversion
+                        const y = pixelData[i];
+                        const cb = pixelData[i + numPixels];
+                        const cr = pixelData[i + numPixels * 2];
+
+                        r = Math.round(y + 1.402 * (cr - 128));
+                        g = Math.round(y - 0.344136 * (cb - 128) - 0.714136 * (cr - 128));
+                        b = Math.round(y + 1.772 * (cb - 128));
+                    }
+
+                    imageData.data[dstIdx] = Math.max(0, Math.min(255, r));
+                    imageData.data[dstIdx + 1] = Math.max(0, Math.min(255, g));
+                    imageData.data[dstIdx + 2] = Math.max(0, Math.min(255, b));
+                    imageData.data[dstIdx + 3] = 255;
+                }
+            }
+        } else if (photometric === 'PALETTE COLOR') {
+            // Handle palette color images using lookup tables
+            const redLut = image.redPaletteColorLookupTableData;
+            const greenLut = image.greenPaletteColorLookupTableData;
+            const blueLut = image.bluePaletteColorLookupTableData;
+
+            for (let i = 0; i < numPixels; i++) {
+                const idx = pixelData[i];
+                const dstIdx = i * 4;
+
+                if (redLut && greenLut && blueLut) {
+                    imageData.data[dstIdx] = redLut[idx] >> 8 || redLut[idx];
+                    imageData.data[dstIdx + 1] = greenLut[idx] >> 8 || greenLut[idx];
+                    imageData.data[dstIdx + 2] = blueLut[idx] >> 8 || blueLut[idx];
+                } else {
+                    // Fallback to grayscale
+                    imageData.data[dstIdx] = idx;
+                    imageData.data[dstIdx + 1] = idx;
+                    imageData.data[dstIdx + 2] = idx;
+                }
+                imageData.data[dstIdx + 3] = 255;
+            }
+        } else {
+            // Fallback: try to render as interleaved RGB
+            for (let i = 0; i < numPixels; i++) {
+                const srcIdx = i * samplesPerPixel;
+                const dstIdx = i * 4;
+
+                imageData.data[dstIdx] = pixelData[srcIdx] || 0;
+                imageData.data[dstIdx + 1] = pixelData[srcIdx + 1] || pixelData[srcIdx] || 0;
+                imageData.data[dstIdx + 2] = pixelData[srcIdx + 2] || pixelData[srcIdx] || 0;
+                imageData.data[dstIdx + 3] = 255;
+            }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+    }
+
+    // Render grayscale image thumbnail (CT, MRI, X-Ray)
+    renderGrayscaleThumbnail(image, canvas, ctx) {
+        const pixelData = image.getPixelData();
+        const imageData = ctx.createImageData(image.width, image.height);
+
+        // Apply optimal window/level for thumbnail visibility
+        const windowWidth = image.windowWidth || this.calculateOptimalWindow(pixelData);
+        const windowCenter = image.windowCenter || this.calculateOptimalLevel(pixelData);
+
+        // Convert pixel data to RGB with proper windowing
+        this.applyWindowLevel(pixelData, imageData.data, windowWidth, windowCenter, image);
+
+        ctx.putImageData(imageData, 0, 0);
     }
 
     // Apply window/level to pixel data for optimal thumbnail contrast
@@ -851,7 +1071,6 @@ window.DICOM_VIEWER.ThumbnailManager = class {
 
 
     // Update thumbnail in the UI
-    // Update thumbnail in the UI
     updateThumbnailInUI(fileId) {
         const seriesItem = document.querySelector(`[data-file-id="${fileId}"]`);
         if (!seriesItem) return;
@@ -859,25 +1078,192 @@ window.DICOM_VIEWER.ThumbnailManager = class {
         const thumbnailContainer = seriesItem.querySelector('.series-thumbnail');
         if (!thumbnailContainer) return;
 
-        const cachedThumbnail = this.thumbnailCache.get(fileId);
+        // Check if large thumbnails mode is active
+        const isLargeMode = document.getElementById('series-list')?.classList.contains('large-thumbnails');
+        const cachedThumbnail = isLargeMode
+            ? (this.largeThumbnailCache.get(fileId) || this.thumbnailCache.get(fileId))
+            : this.thumbnailCache.get(fileId);
+
         if (cachedThumbnail) {
             thumbnailContainer.innerHTML = `
-                <img src="${cachedThumbnail}" 
-                     alt="DICOM Preview" 
+                <img src="${cachedThumbnail}"
+                     alt="DICOM Preview"
                      style="width: 100%; height: 100%; object-fit: cover; border-radius: 4px;">
             `;
-
-            // Add loading class removal
             thumbnailContainer.classList.remove('loading');
         }
     }
 
+    // Generate large thumbnail for better visibility in expanded view
+    async generateLargeThumbnail(fileId, imageData = null) {
+        // Check large cache first
+        if (this.largeThumbnailCache.has(fileId)) {
+            return this.largeThumbnailCache.get(fileId);
+        }
+
+        if (this.loadingThumbnails.has(fileId + '_large')) {
+            return new Promise((resolve) => {
+                const checkInterval = setInterval(() => {
+                    if (this.largeThumbnailCache.has(fileId)) {
+                        clearInterval(checkInterval);
+                        resolve(this.largeThumbnailCache.get(fileId));
+                    }
+                }, 100);
+            });
+        }
+
+        this.loadingThumbnails.add(fileId + '_large');
+
+        try {
+            let imageId;
+            const fileInfo = window.DICOM_VIEWER.STATE.currentSeriesImages.find(img =>
+                img.id === fileId || img.orthancInstanceId === fileId || img.instanceId === fileId
+            );
+
+            if (fileInfo && (fileInfo.isOrthancImage || fileInfo.orthancInstanceId)) {
+                const orthancInstanceId = fileInfo.orthancInstanceId || fileInfo.instanceId || fileInfo.id;
+                const basePath = window.basePath || '';
+                imageId = `wadouri:${window.location.origin}${basePath}/api/get_dicom_from_orthanc.php?instanceId=${orthancInstanceId}`;
+            } else if (imageData) {
+                imageId = 'wadouri:data:application/dicom;base64,' + imageData;
+            } else if (fileInfo && fileInfo.file_data) {
+                imageId = 'wadouri:data:application/dicom;base64,' + fileInfo.file_data;
+            } else {
+                const isOrthancId = /^[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}-[a-f0-9]{8}$/i.test(fileId);
+                if (isOrthancId) {
+                    const basePath = window.basePath || '';
+                    imageId = `wadouri:${window.location.origin}${basePath}/api/get_dicom_from_orthanc.php?instanceId=${fileId}`;
+                } else {
+                    const basePath = window.basePath || '';
+                    const response = await fetch(`${basePath}/get_dicom_fast.php?id=${fileId}&format=base64`);
+                    const data = await response.json();
+                    if (!data.success && !data.data) {
+                        throw new Error('Failed to load image data for large thumbnail');
+                    }
+                    const base64Data = data.data || data.file_data;
+                    imageId = 'wadouri:data:application/dicom;base64,' + base64Data;
+                }
+            }
+
+            const image = await cornerstone.loadImage(imageId);
+            const thumbnailDataUrl = await this.createLargeThumbnailCanvas(image);
+            this.largeThumbnailCache.set(fileId, thumbnailDataUrl);
+            return thumbnailDataUrl;
+
+        } catch (error) {
+            console.error(`Failed to generate large thumbnail for ${fileId}:`, error);
+            const fallbackThumbnail = this.createLargeFallbackThumbnail();
+            this.largeThumbnailCache.set(fileId, fallbackThumbnail);
+            return fallbackThumbnail;
+
+        } finally {
+            this.loadingThumbnails.delete(fileId + '_large');
+        }
+    }
+
+    // Create high-resolution thumbnail canvas for large view
+    async createLargeThumbnailCanvas(image) {
+        // Try Cornerstone's renderToCanvas first (most reliable)
+        try {
+            return await this.createThumbnailWithCornerstone(image, this.largeThumbnailSize);
+        } catch (e) {
+            console.log('Cornerstone renderToCanvas failed for large thumbnail, using manual:', e.message);
+            return await this.createThumbnailManual(image, this.largeThumbnailSize);
+        }
+    }
+
+    // Create fallback for large thumbnails
+    createLargeFallbackThumbnail() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = this.largeThumbnailSize;
+        canvas.height = this.largeThumbnailSize;
+
+        const gradient = ctx.createLinearGradient(0, 0, this.largeThumbnailSize, this.largeThumbnailSize);
+        gradient.addColorStop(0, '#2c3e50');
+        gradient.addColorStop(1, '#34495e');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, this.largeThumbnailSize, this.largeThumbnailSize);
+
+        ctx.fillStyle = '#7f8c8d';
+        ctx.font = '48px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('📊', this.largeThumbnailSize / 2, this.largeThumbnailSize / 2);
+
+        return canvas.toDataURL('image/png');
+    }
+
+    // Regenerate all thumbnails at large size for expanded view
+    async regenerateLargeThumbnails() {
+        const seriesItems = document.querySelectorAll('.series-item[data-file-id]');
+        for (const item of seriesItems) {
+            const fileId = item.dataset.fileId;
+            if (fileId && !this.largeThumbnailCache.has(fileId)) {
+                try {
+                    const largeThumbnail = await this.generateLargeThumbnail(fileId);
+                    const thumbnailContainer = item.querySelector('.series-thumbnail');
+                    if (thumbnailContainer && largeThumbnail) {
+                        thumbnailContainer.innerHTML = `<img src="${largeThumbnail}" alt="DICOM Preview" style="width: 100%; height: 100%; object-fit: cover; border-radius: 4px;">`;
+                    }
+                } catch (error) {
+                    console.error('Failed to regenerate large thumbnail for', fileId, error);
+                }
+                // Small delay to prevent overwhelming
+                await new Promise(resolve => setTimeout(resolve, 30));
+            }
+        }
+    }
 
     // Clear cache to free memory
     clearCache() {
         this.thumbnailCache.clear();
+        this.largeThumbnailCache.clear();
         this.loadingThumbnails.clear();
         console.log('Thumbnail cache cleared');
+    }
+
+    // Force regenerate all thumbnails (clears cache and regenerates)
+    async forceRegenerateThumbnails() {
+        console.log('Force regenerating all thumbnails...');
+        this.clearCache();
+
+        const seriesItems = document.querySelectorAll('.series-item[data-file-id]');
+        const isLargeMode = document.getElementById('series-list')?.classList.contains('large-thumbnails');
+
+        for (const item of seriesItems) {
+            const fileId = item.dataset.fileId;
+            if (fileId) {
+                try {
+                    // Set loading state
+                    const thumbnailContainer = item.querySelector('.series-thumbnail');
+                    if (thumbnailContainer) {
+                        thumbnailContainer.classList.add('loading');
+                    }
+
+                    // Generate new thumbnail
+                    let thumbnail;
+                    if (isLargeMode) {
+                        thumbnail = await this.generateLargeThumbnail(fileId);
+                    } else {
+                        thumbnail = await this.generateThumbnail(fileId);
+                    }
+
+                    // Update UI
+                    if (thumbnailContainer && thumbnail) {
+                        thumbnailContainer.innerHTML = `<img src="${thumbnail}" alt="DICOM Preview" style="width: 100%; height: 100%; object-fit: cover; border-radius: 4px;">`;
+                        thumbnailContainer.classList.remove('loading');
+                    }
+                } catch (error) {
+                    console.error('Failed to regenerate thumbnail for', fileId, error);
+                }
+                // Small delay to prevent overwhelming
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
+        console.log('Thumbnail regeneration complete');
     }
 }
 // ===== IMAGE LOADING AND SERIES MANAGEMENT =====
@@ -1270,11 +1656,18 @@ window.DICOM_VIEWER.populateSeriesList = function (files) {
                 </div>
             `;
 
-            itemElement.addEventListener('click', () => {
+            itemElement.addEventListener('click', (e) => {
+                // Check if large thumbnails mode is active - enable auto-select
+                const isLargeThumbnailsMode = document.getElementById('series-list')?.classList.contains('large-thumbnails');
+
                 // Feature: Ordered Image Selection
-                if (window.DICOM_VIEWER.STATE.isSelectionMode) {
+                if (window.DICOM_VIEWER.STATE.isSelectionMode || isLargeThumbnailsMode) {
                     if (window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.viewportActionsManager) {
                         window.DICOM_VIEWER.MANAGERS.viewportActionsManager.toggleOrderedSelection(file);
+                        // Show/update floating arrange button for large thumbnails mode
+                        if (isLargeThumbnailsMode) {
+                            window.DICOM_VIEWER.updateFloatingArrangeButton();
+                        }
                     }
                 } else {
                     window.DICOM_VIEWER.selectSeriesItem(itemElement, file.originalIndex);
@@ -1313,6 +1706,51 @@ window.DICOM_VIEWER.populateSeriesList = function (files) {
     console.log(`Populated series list with ${files.length} items grouped by patient - thumbnails generating`);
 };
 
+// Floating arrange button for large thumbnails mode
+window.DICOM_VIEWER.updateFloatingArrangeButton = function() {
+    const state = window.DICOM_VIEWER.STATE;
+    const selectionCount = state.orderedImageSelection.length;
+    const seriesList = document.getElementById('series-list');
+    const isLargeThumbnailsMode = seriesList?.classList.contains('large-thumbnails');
+
+    // Get or create floating arrange button
+    let floatingBtn = document.getElementById('floatingArrangeBtn');
+
+    if (!floatingBtn) {
+        floatingBtn = document.createElement('button');
+        floatingBtn.id = 'floatingArrangeBtn';
+        floatingBtn.className = 'btn btn-primary floating-arrange-btn';
+        floatingBtn.innerHTML = '<i class="bi bi-grid-3x3-gap-fill me-2"></i>Arrange';
+        floatingBtn.addEventListener('click', () => {
+            if (window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.viewportActionsManager) {
+                window.DICOM_VIEWER.MANAGERS.viewportActionsManager.arrangeOrderedImages();
+                // Hide the button after arranging
+                floatingBtn.style.display = 'none';
+            }
+        });
+        document.body.appendChild(floatingBtn);
+    }
+
+    // Show/hide and update button based on selection
+    if (isLargeThumbnailsMode && selectionCount > 0) {
+        floatingBtn.innerHTML = `<i class="bi bi-grid-3x3-gap-fill me-2"></i>Arrange (${selectionCount})`;
+        floatingBtn.style.display = 'flex';
+    } else {
+        floatingBtn.style.display = 'none';
+    }
+};
+
+// Clear floating button when switching modes
+window.DICOM_VIEWER.hideFloatingArrangeButton = function(skipClearSelection = false) {
+    const floatingBtn = document.getElementById('floatingArrangeBtn');
+    if (floatingBtn) {
+        floatingBtn.style.display = 'none';
+    }
+    // Also clear selection when exiting large thumbnail mode (unless already cleared)
+    if (!skipClearSelection && window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.viewportActionsManager) {
+        window.DICOM_VIEWER.MANAGERS.viewportActionsManager.clearOrderedSelection();
+    }
+};
 
 // Add this new function to main.js
 window.DICOM_VIEWER.toggleStarStatus = async function (event, fileId) {

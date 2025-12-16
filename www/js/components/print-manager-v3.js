@@ -72,7 +72,7 @@ window.DICOM_VIEWER.PrintManager = class {
                     includeMeasurements: true,
                     includeTimestamp: true,
                     paperSize: 'A4',
-                    orientation: 'landscape',
+                    orientation: 'auto', // Auto-detect based on layout
                     quality: 'high',
                     colorMode: 'grayscale',
                     // Border settings - defaults
@@ -144,7 +144,7 @@ window.DICOM_VIEWER.PrintManager = class {
             includeMeasurements: true,
             includeTimestamp: true,
             paperSize: 'A4',
-            orientation: 'landscape',
+            orientation: 'auto', // Auto-detect based on layout
             quality: 'high',
             colorMode: 'grayscale',
             // Border settings
@@ -153,6 +153,65 @@ window.DICOM_VIEWER.PrintManager = class {
             borderWidth: 2,
             borderStyle: 'solid'
         };
+    }
+
+    /**
+     * Auto-detect optimal print orientation based on current layout
+     * Portrait layouts: 6, 8, 15 spots (more rows than columns)
+     * Landscape layouts: 1, 2, 4, 9, 12, 16 spots (more columns than rows or square)
+     * @returns {string} 'portrait' or 'landscape'
+     */
+    detectOptimalOrientation() {
+        const viewportContainer = document.getElementById('viewport-container');
+        if (!viewportContainer) {
+            return 'landscape'; // Default fallback
+        }
+
+        // Check layout class first
+        const containerClasses = viewportContainer.className;
+
+        // Portrait layouts: 6 (2x3), 8 (2x4), 15 (3x5) - more rows than columns
+        const portraitLayouts = ['layout-spots-6', 'layout-spots-8', 'layout-spots-15'];
+        for (const layoutClass of portraitLayouts) {
+            if (containerClasses.includes(layoutClass)) {
+                console.log(`Auto-detected portrait orientation for ${layoutClass}`);
+                return 'portrait';
+            }
+        }
+
+        // Landscape layouts: 1, 2, 4, 9, 12, 16 - square or more columns than rows
+        const landscapeLayouts = ['layout-spots-1', 'layout-spots-2', 'layout-spots-4', 'layout-spots-9', 'layout-spots-12', 'layout-spots-16'];
+        for (const layoutClass of landscapeLayouts) {
+            if (containerClasses.includes(layoutClass)) {
+                console.log(`Auto-detected landscape orientation for ${layoutClass}`);
+                return 'landscape';
+            }
+        }
+
+        // Fallback: Analyze grid dimensions
+        const containerStyles = window.getComputedStyle(viewportContainer);
+        const gridCols = containerStyles.gridTemplateColumns.split(' ').filter(s => s.trim()).length || 2;
+        const gridRows = containerStyles.gridTemplateRows.split(' ').filter(s => s.trim()).length || 2;
+
+        // More rows than columns = portrait, otherwise landscape
+        const orientation = gridRows > gridCols ? 'portrait' : 'landscape';
+        console.log(`Auto-detected ${orientation} orientation from grid: ${gridCols}x${gridRows}`);
+        return orientation;
+    }
+
+    /**
+     * Get effective print settings with auto-detected orientation
+     * @returns {Object} Print settings with resolved orientation
+     */
+    getEffectivePrintSettings() {
+        const settings = { ...this.printSettings };
+
+        // Auto-detect orientation if set to 'auto' or 'landscape' (legacy default)
+        if (settings.orientation === 'auto' || !settings.orientation) {
+            settings.orientation = this.detectOptimalOrientation();
+        }
+
+        return settings;
     }
 
     setupPrintButton() {
@@ -415,7 +474,7 @@ window.DICOM_VIEWER.PrintManager = class {
                                 <h6 class="text-info mb-2"><i class="bi bi-info-circle me-2"></i>Print Settings</h6>
                                 <small class="text-muted">
                                     Paper: <strong>${this.printSettings.paperSize}</strong> |
-                                    Orientation: <strong>${this.printSettings.orientation}</strong> |
+                                    Orientation: <strong>${this.printSettings.orientation === 'auto' ? 'Auto (' + this.detectOptimalOrientation() + ')' : this.printSettings.orientation}</strong> |
                                     Quality: <strong>${this.printSettings.quality}</strong>
                                 </small>
                             </div>
@@ -989,7 +1048,7 @@ window.DICOM_VIEWER.PrintManager = class {
      * Generate HTML for layout screenshot print
      */
     generateLayoutPrintHTML(imageDataUrl, patientInfo, viewportCount, previewOnly) {
-        const settings = this.printSettings;
+        const settings = this.getEffectivePrintSettings();
         const marginValues = { none: 0, narrow: 5, normal: 10, wide: 20 };
         const margin = marginValues[settings.margins] || 10;
 
@@ -1331,7 +1390,7 @@ window.DICOM_VIEWER.PrintManager = class {
      * Generate HTML for all images print using page screenshots
      */
     generateAllImagesScreenshotHTML(pageScreenshots, patientInfo, viewportCount, previewOnly) {
-        const settings = this.printSettings;
+        const settings = this.getEffectivePrintSettings();
         const marginValues = { none: 0, narrow: 5, normal: 10, wide: 20 };
         const margin = marginValues[settings.margins] || 10;
         const totalPages = pageScreenshots.length;
@@ -1563,7 +1622,7 @@ window.DICOM_VIEWER.PrintManager = class {
      * Generate HTML for all images print with multiple pages
      */
     generateAllImagesPrintHTML(capturedImages, patientInfo, layout, totalPages, previewOnly) {
-        const settings = this.printSettings;
+        const settings = this.getEffectivePrintSettings();
         const [rows, cols] = layout.split('x').map(Number);
         const imagesPerPage = rows * cols;
 
@@ -1821,7 +1880,7 @@ window.DICOM_VIEWER.PrintManager = class {
         `;
     }
     generateViewportPrintHTML(viewportState, patientInfo, previewOnly) {
-        const settings = this.printSettings;
+        const settings = this.getEffectivePrintSettings();
         const [rows, cols] = viewportState.layout.split('x').map(Number);
 
         const marginValues = { none: 0, narrow: 5, normal: 10, wide: 20 };

@@ -26,9 +26,13 @@
     /* Pink */
 }
 
+html, body {
+    height: 100%;
+    overflow: hidden !important;
+}
+
 body {
     font-size: 0.9rem;
-    overflow-x: hidden;
 }
 
 /* Mobile-first responsive main layout */
@@ -158,11 +162,14 @@ body {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;
     gap: 1px;
-    height: calc(100vh - var(--header-height) - 120px);
+    height: 100%;
+    max-height: 100%;
     padding: 4px;
     background-color: #000000;
-    overflow: hidden;
+    overflow: hidden !important;
     flex: 1;
+    position: relative;
+    z-index: 1;
 }
 
 /* Tablet viewport */
@@ -171,24 +178,26 @@ body {
         grid-template-columns: repeat(2, 1fr);
         grid-template-rows: repeat(2, 1fr);
         gap: 2px;
-        height: calc(100% - 48px);
+        height: 100%;
+        max-height: 100%;
         padding: 8px;
     }
 }
 
-/* Mobile viewport container with many images */
+/* Mobile viewport container with many images - disabled overflow */
 .viewport-container.many-images {
     grid-template-columns: 1fr;
-    grid-template-rows: repeat(auto-fit, minmax(200px, 1fr));
-    height: auto;
-    min-height: calc(100vh - var(--header-height) - 120px);
-    overflow-y: auto;
+    grid-template-rows: repeat(auto-fit, minmax(100px, 1fr));
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden !important;
 }
 
 @media (min-width: 768px) {
     .viewport-container.many-images {
-        grid-template-rows: repeat(auto-fit, minmax(300px, 1fr));
-        min-height: calc(100% - 48px);
+        grid-template-rows: repeat(auto-fit, minmax(150px, 1fr));
+        height: 100%;
+        max-height: 100%;
     }
 }
 
@@ -356,12 +365,16 @@ body {
     background-color: var(--bs-tertiary-bg);
     border-bottom: 1px solid var(--bs-border-color);
     padding: 4px 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: visible !important;
+    position: relative;
+    z-index: 1000;
 }
 
 .mpr-controls .top-controls-bar {
     min-width: min-content;
+    position: relative;
+    z-index: 1000;
+    overflow: visible !important;
 }
 
 /* Ensure controls stay in one row */
@@ -545,6 +558,83 @@ body {
     }
 }
 
+/* Expanded thumbnail view - large thumbnails mode */
+.series-list-container.large-thumbnails .series-item {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 8px !important;
+    margin-bottom: 8px !important;
+}
+
+.series-list-container.large-thumbnails .series-thumbnail {
+    width: 100% !important;
+    height: 150px !important;
+    margin-right: 0 !important;
+    margin-bottom: 8px;
+}
+
+.series-list-container.large-thumbnails .series-item > div:first-child {
+    margin-right: 0 !important;
+    width: 100%;
+}
+
+.series-list-container.large-thumbnails .series-item > div:nth-child(2) {
+    text-align: center;
+}
+
+.series-list-container.large-thumbnails .viewport-badges {
+    justify-content: center !important;
+}
+
+.series-list-container.large-thumbnails .series-item > div:last-child {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+}
+
+.series-list-container.large-thumbnails .series-item {
+    position: relative;
+}
+
+/* Toggle button active state */
+#toggleThumbnailSize.active {
+    background-color: var(--bs-primary) !important;
+    border-color: var(--bs-primary) !important;
+    color: white !important;
+}
+
+/* Floating arrange button for large thumbnails mode */
+.floating-arrange-btn {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1050;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 50px;
+    box-shadow: 0 4px 20px rgba(13, 110, 253, 0.4);
+    animation: floatBtnPulse 2s ease-in-out infinite;
+}
+
+.floating-arrange-btn:hover {
+    transform: translateX(-50%) scale(1.05);
+    box-shadow: 0 6px 25px rgba(13, 110, 253, 0.5);
+}
+
+@keyframes floatBtnPulse {
+    0%, 100% {
+        box-shadow: 0 4px 20px rgba(13, 110, 253, 0.4);
+    }
+    50% {
+        box-shadow: 0 4px 30px rgba(13, 110, 253, 0.6);
+    }
+}
+
 /* Mobile-optimized layout configurations */
 .layout-1x1 {
     grid-template-columns: 1fr !important;
@@ -620,6 +710,198 @@ body {
         grid-column: 2;
         grid-row: 2;
     }
+}
+
+/* Layout Dropdown Styles - FIXED Z-INDEX */
+.layout-dropdown-btn {
+    min-width: 95px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    position: relative;
+    z-index: 1002;
+}
+
+.layout-dropdown-menu {
+    min-width: 140px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 99999 !important;
+    position: absolute !important;
+    inset: 0px auto auto 0px !important;
+    transform: translate(0px, 32px) !important;
+}
+
+.layout-dropdown-menu .dropdown-item {
+    font-size: 0.85rem;
+    padding: 8px 14px;
+}
+
+.layout-dropdown-menu .dropdown-item.active {
+    background-color: var(--bs-primary);
+}
+
+.layout-dropdown-menu .dropdown-item:hover {
+    background-color: rgba(13, 110, 253, 0.3);
+}
+
+/* Dropdown divider for categories */
+.layout-dropdown-menu .dropdown-divider {
+    border-color: rgba(255, 255, 255, 0.15);
+    margin: 4px 0;
+}
+
+.layout-dropdown-menu .dropdown-header {
+    color: #6c757d;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 6px 14px;
+}
+
+/* Ensure dropdown parent has proper z-index */
+.top-controls-bar .dropdown {
+    position: relative;
+    z-index: 1001;
+}
+
+.top-controls-bar .dropdown.show {
+    z-index: 99998 !important;
+}
+
+.top-controls-bar .dropdown.show .dropdown-menu {
+    z-index: 99999 !important;
+    display: block !important;
+}
+
+/* Force viewport container below dropdown */
+#viewport-container {
+    z-index: 1 !important;
+    position: relative;
+}
+
+/* Ensure main content doesn't block dropdown */
+#main-content {
+    position: relative;
+    z-index: 1;
+    overflow: visible;
+}
+
+/* Compact MPR buttons */
+.btn-mpr {
+    font-size: 0.75rem !important;
+    padding: 4px 8px !important;
+    font-weight: 600;
+    min-width: 36px;
+}
+
+/* Portrait/Landscape Adaptive Grid Layouts */
+/* 1 Spot - Single viewport */
+.layout-spots-1 {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr !important;
+}
+
+/* 2 Spots - Landscape (side by side) */
+.layout-spots-2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-rows: 1fr !important;
+}
+
+/* 4 Spots - Landscape (2x2) */
+.layout-spots-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-rows: repeat(2, 1fr) !important;
+}
+
+/* 6 Spots - Portrait (2 columns x 3 rows) */
+.layout-spots-6 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-rows: repeat(3, 1fr) !important;
+}
+
+/* 8 Spots - Portrait (2 columns x 4 rows) */
+.layout-spots-8 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-rows: repeat(4, 1fr) !important;
+}
+
+/* 9 Spots - Landscape (3x3) */
+.layout-spots-9 {
+    grid-template-columns: repeat(3, 1fr) !important;
+    grid-template-rows: repeat(3, 1fr) !important;
+}
+
+/* 12 Spots - Landscape (4 columns x 3 rows) */
+.layout-spots-12 {
+    grid-template-columns: repeat(4, 1fr) !important;
+    grid-template-rows: repeat(3, 1fr) !important;
+}
+
+/* 15 Spots - Portrait (3 columns x 5 rows) */
+.layout-spots-15 {
+    grid-template-columns: repeat(3, 1fr) !important;
+    grid-template-rows: repeat(5, 1fr) !important;
+}
+
+/* 16 Spots - Landscape (4x4) */
+.layout-spots-16 {
+    grid-template-columns: repeat(4, 1fr) !important;
+    grid-template-rows: repeat(4, 1fr) !important;
+}
+
+/* ==========================================
+   PRINT-FOCUSED LAYOUT WIDTHS
+   Portrait layouts use ~65% width (narrower but visible)
+   Landscape layouts use ~95% width (wider)
+   ========================================== */
+
+/* Portrait Layout Wrapper - narrower viewports for vertical printing */
+.viewport-container.layout-portrait {
+    max-width: 65% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Landscape Layout Wrapper - wider viewports for horizontal printing */
+.viewport-container.layout-landscape {
+    max-width: 95% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Portrait Layouts: 6, 8, 15 spots */
+.viewport-container.layout-spots-6,
+.viewport-container.layout-spots-8,
+.viewport-container.layout-spots-15 {
+    max-width: 65% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Landscape Layouts: 1, 2, 4, 9, 12, 16 spots */
+.viewport-container.layout-spots-1,
+.viewport-container.layout-spots-2,
+.viewport-container.layout-spots-4,
+.viewport-container.layout-spots-9,
+.viewport-container.layout-spots-12,
+.viewport-container.layout-spots-16 {
+    max-width: 95% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Viewport number labels for spots layout */
+.viewport-spot-number {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 1.2rem;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 4px;
+    z-index: 10;
 }
 
 /* Responsive preset buttons */
@@ -896,11 +1178,13 @@ body {
 
 /* Main content responsive layout */
 #main-content {
-    min-height: calc(100vh - var(--header-height));
+    height: calc(100vh - var(--header-height));
+    max-height: calc(100vh - var(--header-height));
     display: flex;
     flex-direction: column;
     flex: 1;
     order: 2;
+    overflow: hidden !important;
 }
 
 @media (min-width: 768px) {
@@ -911,28 +1195,32 @@ body {
 
 .viewport-container {
     flex: 1;
-    min-height: 300px;
+    min-height: 0;
+    max-height: calc(100vh - var(--header-height) - 50px);
     width: 100%;
+    overflow: hidden !important;
 }
 
 @media (min-width: 768px) {
     .viewport-container {
-        min-height: 400px;
+        min-height: 0;
+        max-height: calc(100% - 50px);
     }
 }
 
 .viewport {
-    min-width: 150px !important;
-    min-height: 150px !important;
+    min-width: 50px !important;
+    min-height: 50px !important;
     width: 100% !important;
     height: 100% !important;
     box-sizing: border-box;
+    overflow: hidden !important;
 }
 
 @media (min-width: 768px) {
     .viewport {
-        min-width: 200px !important;
-        min-height: 200px !important;
+        min-width: 80px !important;
+        min-height: 80px !important;
     }
 }
 
@@ -1362,11 +1650,30 @@ body {
         page-break-inside: avoid;
     }
 
+    /* Portrait print layouts - narrower width */
+    .viewport-container.layout-spots-6,
+    .viewport-container.layout-spots-8,
+    .viewport-container.layout-spots-15 {
+        max-width: 70% !important;
+        margin: 0 auto !important;
+    }
+
+    /* Landscape print layouts - wider width */
+    .viewport-container.layout-spots-1,
+    .viewport-container.layout-spots-2,
+    .viewport-container.layout-spots-4,
+    .viewport-container.layout-spots-9,
+    .viewport-container.layout-spots-12,
+    .viewport-container.layout-spots-16 {
+        max-width: 98% !important;
+        margin: 0 auto !important;
+    }
+
     .viewport {
-        min-height: 300px;
+        min-height: 200px;
         border: 1px solid #000;
         page-break-inside: avoid;
-        margin-bottom: 1rem;
+        margin-bottom: 0.5rem;
     }
 
     .viewport canvas {

@@ -284,18 +284,36 @@ window.DICOM_VIEWER.CustomGridLayoutManager = class {
         const container = document.getElementById('viewport-container');
         if (!container) return;
 
-        // Calculate optimal cell size
-        const isMobile = window.innerWidth < 768;
-        const containerHeight = window.innerHeight - (isMobile ? 100 : 150);
-        const containerWidth = container.clientWidth;
+        const spots = rows * cols;
 
-        const cellHeight = Math.floor(containerHeight / rows);
-        const cellWidth = Math.floor(containerWidth / cols);
+        // Remove all layout classes
+        container.className = container.className
+            .split(' ')
+            .filter(c => !c.startsWith('layout-'))
+            .join(' ');
 
-        // Apply grid template
+        // Add new layout-spots class if it exists, otherwise apply inline styles
+        const spotsClass = `layout-spots-${spots}`;
+        container.classList.add(spotsClass);
+
+        // Apply grid template as fallback
         container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
         container.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
         container.style.gap = '2px';
+
+        // Update dropdown text if it exists
+        const dropdownText = document.getElementById('layoutDropdownText');
+        if (dropdownText) {
+            dropdownText.textContent = spots + (spots === 1 ? ' Spot' : ' Spots');
+        }
+
+        // Update dropdown active state
+        document.querySelectorAll('.layout-dropdown-menu .dropdown-item').forEach(item => {
+            item.classList.toggle('active', parseInt(item.dataset.spots) === spots);
+        });
+
+        // Save preference
+        localStorage.setItem('layoutSpots', spots.toString());
     }
 
     /**

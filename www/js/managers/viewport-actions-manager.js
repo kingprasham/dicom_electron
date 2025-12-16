@@ -17,6 +17,7 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         console.log('Initializing Viewport Actions Manager');
         this.createActionButtons();
         this.setupDragAndDrop();
+        this.setupSidebarDragAndDrop(); // Enable drag from sidebar to viewport
         this.setupViewportSync();
         this.setupKeyboardShortcuts(); // Add Ctrl+A handler
         this.setupViewportClickHandlers(); // Add Ctrl+Click handler
@@ -277,8 +278,18 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             this.fitAllImagesToViewports();
             window.DICOM_VIEWER.showAISuggestion('Images arranged successfully');
 
-            // Auto-exit selection mode to clear UI (badges/borders)
-            this.toggleSelectionMode();
+            // Clear selection and reset UI
+            this.clearOrderedSelection();
+
+            // Also hide floating arrange button if visible (skip clearing selection since we just did it)
+            if (window.DICOM_VIEWER.hideFloatingArrangeButton) {
+                window.DICOM_VIEWER.hideFloatingArrangeButton(true);
+            }
+
+            // If in selection mode, exit it
+            if (state.isSelectionMode) {
+                this.toggleSelectionMode();
+            }
 
         }, 300);
     }
@@ -552,6 +563,145 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
 
         // Touch support for mobile
         this.addTouchDragSupport(viewport);
+
+        // Enable sidebar item drops on this viewport
+        this.enableSidebarDropOnViewport(viewport);
+    }
+
+    /**
+     * Enable dropping sidebar items onto viewports
+     */
+    enableSidebarDropOnViewport(viewport) {
+        const self = this;
+        // Override drop handler to also accept sidebar items
+        viewport.addEventListener('drop', async (e) => {
+            // Check if this is a sidebar item drop
+            const sidebarFileId = e.dataTransfer.getData('sidebar-file-id');
+            if (sidebarFileId) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // Reset all visual styles - remove drag-over class and inline styles
+                viewport.classList.remove('drag-over');
+                viewport.style.border = '';
+                viewport.style.boxShadow = '';
+
+                console.log('Dropping sidebar item:', sidebarFileId, 'onto viewport:', viewport.id);
+
+                // Find the file in the current series
+                const file = window.DICOM_VIEWER.STATE.currentSeriesImages.find(
+                    img => img.id === sidebarFileId || img.orthancInstanceId === sidebarFileId
+                );
+
+                if (file) {
+                    try {
+                        // Load the image into this viewport using the manager method
+                        await self.loadImageToViewport(viewport, file, 0);
+                        console.log('Successfully loaded image to viewport');
+
+                        // Show success state briefly
+                        viewport.classList.add('drop-success');
+                        setTimeout(() => {
+                            viewport.classList.remove('drop-success');
+                        }, 500);
+                    } catch (error) {
+                        console.error('Failed to load image to viewport:', error);
+                    }
+                }
+            }
+        }, true); // Use capture to handle before the viewport-to-viewport handler
+
+        // Also handle dragover to add drag-over class for sidebar items
+        viewport.addEventListener('dragover', (e) => {
+            // Check if it's a sidebar drag
+            if (e.dataTransfer.types.includes('sidebar-file-id')) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                if (!viewport.classList.contains('drag-over')) {
+                    viewport.classList.add('drag-over');
+                }
+            }
+        });
+
+        // Handle dragleave
+        viewport.addEventListener('dragleave', (e) => {
+            if (!viewport.contains(e.relatedTarget)) {
+                viewport.classList.remove('drag-over');
+                viewport.style.border = '';
+                viewport.style.boxShadow = '';
+            }
+        });
+    }
+
+    /**
+     * Setup sidebar items to be draggable
+     */
+    setupSidebarDragAndDrop() {
+        // Watch for series items and make them draggable
+        const seriesList = document.getElementById('series-list');
+        if (!seriesList) return;
+
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1) {
+                        // Make all series items inside draggable
+                        const items = node.classList?.contains('series-item')
+                            ? [node]
+                            : node.querySelectorAll?.('.series-item') || [];
+                        items.forEach(item => this.makeSidebarItemDraggable(item));
+                    }
+                });
+            });
+        });
+
+        observer.observe(seriesList, {
+            childList: true,
+            subtree: true
+        });
+
+        // Make existing items draggable
+        setTimeout(() => {
+            document.querySelectorAll('.series-item').forEach(item => {
+                this.makeSidebarItemDraggable(item);
+            });
+        }, 500);
+
+        console.log('Sidebar drag and drop initialized');
+    }
+
+    /**
+     * Make a sidebar series item draggable
+     */
+    makeSidebarItemDraggable(item) {
+        if (item.dataset.draggableInitialized) return;
+        item.dataset.draggableInitialized = 'true';
+
+        item.setAttribute('draggable', 'true');
+
+        item.addEventListener('dragstart', (e) => {
+            const fileId = item.dataset.fileId;
+            if (!fileId) {
+                e.preventDefault();
+                return;
+            }
+
+            e.dataTransfer.setData('sidebar-file-id', fileId);
+            e.dataTransfer.effectAllowed = 'copy';
+            item.style.opacity = '0.5';
+
+            // Create a drag image from the thumbnail
+            const thumbnail = item.querySelector('.series-thumbnail img');
+            if (thumbnail) {
+                e.dataTransfer.setDragImage(thumbnail, 40, 40);
+            }
+
+            console.log('Sidebar drag started:', fileId);
+        });
+
+        item.addEventListener('dragend', (e) => {
+            item.style.opacity = '1';
+        });
     }
 
     /**

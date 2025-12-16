@@ -500,11 +500,11 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                 <i class="bi bi-list"></i> Series & Controls
             </button>
             <div class="sidebar-section"
-                style="padding: 1rem; flex-shrink: 0; border-bottom: 1px solid var(--bs-border-color);">
-                <h6 class="text-light mb-2">Series Navigation</h6>
+                style="padding: 0.75rem; flex-shrink: 0; border-bottom: 1px solid var(--bs-border-color);">
+                <h6 class="text-light mb-0">Series Navigation</h6>
             </div>
 
-            <div class="series-list-container" id="series-list">
+            <div class="series-list-container large-thumbnails" id="series-list">
                 <div class="text-center text-muted small p-4">
                     No DICOM files uploaded
                 </div>
@@ -540,44 +540,45 @@ $userRole = $_SESSION['role'] ?? 'viewer';
             </div>
         </aside>
 
-        <main id="main-content" class="d-flex flex-column" style="background-color: #000;">
-            <div class="mpr-controls">
+        <main id="main-content" class="d-flex flex-column" style="background-color: #000; overflow: hidden;">
+            <div class="mpr-controls" style="overflow: visible; z-index: 1000;">
                 <div class="top-controls-bar">
-                    <div class="d-flex justify-content-center align-items-center w-100" style="gap: 8px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 8px;">
-                        <!-- Layout buttons -->
+                    <div class="d-flex justify-content-center align-items-center w-100" style="gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 8px;">
+                        <!-- Layout Button - Opens Modal -->
+                        <button class="btn btn-sm btn-primary layout-modal-btn" type="button" data-bs-toggle="modal" data-bs-target="#layoutSelectorModal">
+                            <i class="bi bi-grid-fill me-1"></i><span id="layoutDropdownText">4 Spots</span>
+                        </button>
+
+                        <!-- MPR buttons - Compact -->
                         <div class="btn-group btn-group-sm" role="group">
-                            <button type="button" class="btn btn-secondary" data-layout="1x1" title="1x1"><i class="bi bi-app"></i></button>
-                            <button type="button" class="btn btn-primary" data-layout="2x2" title="2x2"><i class="bi bi-grid-fill"></i></button>
-                            <button type="button" class="btn btn-secondary" data-layout="2x1" title="2x1"><i class="bi bi-layout-split"></i></button>
-                            <button type="button" class="btn btn-info" id="customGridBtn" title="Custom Grid"><i class="bi bi-grid-3x3-gap"></i></button>
+                            <button type="button" class="btn btn-outline-success btn-mpr" id="mprAxial" title="Axial View">Ax</button>
+                            <button type="button" class="btn btn-outline-success btn-mpr" id="mprSagittal" title="Sagittal View">Sag</button>
+                            <button type="button" class="btn btn-outline-success btn-mpr" id="mprCoronal" title="Coronal View">Cor</button>
                         </div>
 
-                        <!-- MPR buttons -->
+                        <!-- Insert/Clear/Delete buttons -->
                         <div class="btn-group btn-group-sm" role="group">
-                            <button type="button" class="btn btn-outline-success" id="mprAxial" title="Axial">Axial</button>
-                            <button type="button" class="btn btn-outline-success" id="mprSagittal" title="Sagittal">Sagittal</button>
-                            <button type="button" class="btn btn-outline-success" id="mprCoronal" title="Coronal">Coronal</button>
+                            <button class="btn btn-success" id="insertAllBtn" title="Insert All Images"><i class="bi bi-grid-fill"></i></button>
+                            <button class="btn btn-danger" id="clearAllBtn" title="Clear All Viewports"><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-warning" id="deleteSelectedBtn" title="Delete Selected"><i class="bi bi-x-circle"></i></button>
                         </div>
 
-                        <!-- Insert/Clear/Delete/Select buttons -->
+                        <!-- Select/Arrange buttons -->
                         <div class="btn-group btn-group-sm" role="group">
-                            <button class="btn btn-success" id="insertAllBtn" title="Insert All Images"><i class="bi bi-grid-fill"></i> Insert All</button>
-                            <button class="btn btn-danger" id="clearAllBtn" title="Clear All Viewports"><i class="bi bi-trash"></i> Clear All</button>
-                            <button class="btn btn-warning" id="deleteSelectedBtn" title="Delete image from selected viewport"><i class="bi bi-x-circle"></i> Delete</button>
-                            <button class="btn btn-info" id="selectAllBtn" title="Select all viewports (Ctrl+A)"><i class="bi bi-check2-square"></i> Select All</button>
-                            <button class="btn btn-outline-primary" id="selectModeBtn" title="Toggle Selection Mode"><i class="bi bi-list-check"></i> Select</button>
-                            <button class="btn btn-primary" id="arrangeBtn" title="Arrange Selected Images" style="display:none;"><i class="bi bi-sort-numeric-down"></i> Arrange</button>
+                            <button class="btn btn-info" id="selectAllBtn" title="Select All (Ctrl+A)"><i class="bi bi-check2-square"></i></button>
+                            <button class="btn btn-outline-primary" id="selectModeBtn" title="Selection Mode"><i class="bi bi-list-check"></i></button>
+                            <button class="btn btn-primary" id="arrangeBtn" title="Arrange Selected" style="display:none;"><i class="bi bi-sort-numeric-down"></i></button>
                         </div>
-                        
+
                         <!-- Reset button -->
-                        <button class="btn btn-sm btn-outline-warning" id="resetViewportBtn" title="Reset Current Viewport (Zoom, Pan, W/L)">
-                            <i class="bi bi-arrow-counterclockwise"></i> Reset
+                        <button class="btn btn-sm btn-outline-warning" id="resetViewportBtn" title="Reset Viewport">
+                            <i class="bi bi-arrow-counterclockwise"></i>
                         </button>
                     </div>
                 </div>
             </div>
 
-            <div id="viewport-container" class="viewport-container layout-2x2">
+            <div id="viewport-container" class="viewport-container layout-spots-4">
                 <div class="card bg-dark text-light text-center">
                     <div class="card-body d-flex flex-column justify-content-center">
                         <h5 class="card-title text-muted">No DICOM file selected</h5>
@@ -933,6 +934,317 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                 }
             });
         }
+
+        // Initialize layout dropdown (Spots selector)
+        initializeLayoutDropdown();
+
+        function initializeLayoutDropdown() {
+            const dropdownItems = document.querySelectorAll('.layout-dropdown-menu .dropdown-item');
+            const dropdownText = document.getElementById('layoutDropdownText');
+            const viewportContainer = document.getElementById('viewport-container');
+
+            // Layout configurations: spots -> { rows, cols }
+            const layoutConfigs = {
+                1: { rows: 1, cols: 1 },   // 1x1 - Single
+                2: { rows: 1, cols: 2 },   // 1x2 - Landscape
+                4: { rows: 2, cols: 2 },   // 2x2 - Landscape
+                6: { rows: 3, cols: 2 },   // 3x2 - Portrait
+                8: { rows: 4, cols: 2 },   // 4x2 - Portrait
+                9: { rows: 3, cols: 3 },   // 3x3 - Landscape
+                12: { rows: 4, cols: 3 },  // 4x3 - Portrait
+                15: { rows: 5, cols: 3 },  // 5x3 - Portrait
+                16: { rows: 4, cols: 4 }   // 4x4 - Landscape
+            };
+
+            // Load saved layout preference
+            const savedSpots = localStorage.getItem('layoutSpots') || '4';
+            applyLayout(parseInt(savedSpots), false);
+
+            dropdownItems.forEach(item => {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const spots = parseInt(this.dataset.spots);
+                    applyLayout(spots, true);
+                });
+            });
+
+            function applyLayout(spots, createViewports = true) {
+                const config = layoutConfigs[spots];
+                if (!config) return;
+
+                // Update dropdown text
+                if (dropdownText) {
+                    dropdownText.textContent = spots + (spots === 1 ? ' Spot' : ' Spots');
+                }
+
+                // Update active state in dropdown
+                dropdownItems.forEach(item => {
+                    item.classList.toggle('active', parseInt(item.dataset.spots) === spots);
+                });
+
+                // Remove all layout classes
+                if (viewportContainer) {
+                    viewportContainer.className = viewportContainer.className
+                        .split(' ')
+                        .filter(c => !c.startsWith('layout-'))
+                        .join(' ');
+
+                    // Add new layout class
+                    viewportContainer.classList.add(`layout-spots-${spots}`);
+                }
+
+                // Save preference
+                localStorage.setItem('layoutSpots', spots.toString());
+
+                // Create viewports using the viewport manager
+                if (createViewports && window.DICOM_VIEWER && window.DICOM_VIEWER.MANAGERS) {
+                    const viewportManager = window.DICOM_VIEWER.MANAGERS.viewportManager;
+                    const customGridManager = window.DICOM_VIEWER.MANAGERS.customGridManager;
+
+                    if (customGridManager) {
+                        customGridManager.applyCustomGrid(config.rows, config.cols);
+                    } else if (viewportManager) {
+                        // Fallback: generate viewport names and create layout
+                        const viewportNames = [];
+                        for (let i = 0; i < spots; i++) {
+                            viewportNames.push(`viewport-${i + 1}`);
+                        }
+                        const layoutKey = `spots-${spots}`;
+                        viewportManager.layouts[layoutKey] = {
+                            rows: config.rows,
+                            cols: config.cols,
+                            viewports: viewportNames
+                        };
+                        viewportManager.switchLayout(layoutKey);
+                    }
+                }
+
+                console.log(`Applied layout: ${spots} spots (${config.rows}x${config.cols})`);
+            }
+
+            // Expose for external use
+            window.DICOM_VIEWER.applyLayoutSpots = applyLayout;
+
+            // Handle "Custom Layouts..." button click
+            const customLayoutBtn = document.getElementById('openCustomGridModal');
+            if (customLayoutBtn) {
+                customLayoutBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Close the dropdown
+                    const dropdown = document.getElementById('layoutDropdown');
+                    if (dropdown) {
+                        const bsDropdown = bootstrap.Dropdown.getInstance(dropdown);
+                        if (bsDropdown) bsDropdown.hide();
+                    }
+                    // Open the custom grid modal
+                    const modal = document.getElementById('customGridModal');
+                    if (modal) {
+                        const bsModal = new bootstrap.Modal(modal);
+                        bsModal.show();
+                    }
+                });
+            }
+        }
+
+        // Auto-generate high-res thumbnails on load (always use large thumbnails)
+        setTimeout(() => {
+            if (window.DICOM_VIEWER && window.DICOM_VIEWER.thumbnailManager) {
+                window.DICOM_VIEWER.thumbnailManager.regenerateLargeThumbnails();
+            }
+        }, 1000);
+    </script>
+
+    <!-- Layout Selector Modal (Quick Layout Selection) -->
+    <div id="layoutSelectorModal" class="modal fade" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 500px;">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header border-secondary py-2" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);">
+                    <h6 class="modal-title mb-0"><i class="bi bi-grid-fill me-2 text-primary"></i>Select Layout</h6>
+                    <button type="button" class="btn-close btn-close-white btn-sm" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <!-- Landscape Layouts -->
+                    <div class="mb-3">
+                        <h6 class="text-muted small mb-2"><i class="bi bi-aspect-ratio me-1"></i>LANDSCAPE</h6>
+                        <div class="d-flex flex-wrap gap-2" id="landscapeLayouts">
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="1" data-rows="1" data-cols="1">
+                                <div class="layout-preview layout-1x1"></div>
+                                <span>1</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="2" data-rows="1" data-cols="2">
+                                <div class="layout-preview layout-1x2"></div>
+                                <span>2</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn active" data-spots="4" data-rows="2" data-cols="2">
+                                <div class="layout-preview layout-2x2"></div>
+                                <span>4</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="9" data-rows="3" data-cols="3">
+                                <div class="layout-preview layout-3x3"></div>
+                                <span>9</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="12" data-rows="3" data-cols="4">
+                                <div class="layout-preview layout-3x4"></div>
+                                <span>12</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="16" data-rows="4" data-cols="4">
+                                <div class="layout-preview layout-4x4"></div>
+                                <span>16</span>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Portrait Layouts -->
+                    <div class="mb-3">
+                        <h6 class="text-muted small mb-2"><i class="bi bi-phone me-1"></i>PORTRAIT</h6>
+                        <div class="d-flex flex-wrap gap-2" id="portraitLayouts">
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="6" data-rows="3" data-cols="2">
+                                <div class="layout-preview layout-3x2"></div>
+                                <span>6</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="8" data-rows="4" data-cols="2">
+                                <div class="layout-preview layout-4x2"></div>
+                                <span>8</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="15" data-rows="5" data-cols="3">
+                                <div class="layout-preview layout-5x3"></div>
+                                <span>15</span>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Advanced Layouts Link -->
+                    <div class="border-top border-secondary pt-3">
+                        <button class="btn btn-outline-info btn-sm w-100" id="openAdvancedLayoutsBtn" data-bs-dismiss="modal">
+                            <i class="bi bi-grid-3x3-gap me-2"></i>Advanced Custom Layouts...
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* Layout Quick Select Modal Styles */
+        .layout-modal-btn {
+            min-width: 85px;
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+
+        .layout-quick-btn {
+            width: 60px;
+            height: 70px;
+            padding: 5px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .layout-quick-btn:hover {
+            background: rgba(13, 110, 253, 0.2);
+            border-color: #0d6efd;
+        }
+
+        .layout-quick-btn.active {
+            background: #0d6efd;
+            border-color: #0d6efd;
+            color: white;
+        }
+
+        .layout-quick-btn span {
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .layout-preview {
+            width: 40px;
+            height: 35px;
+            display: grid;
+            gap: 1px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            padding: 2px;
+        }
+
+        .layout-preview > div {
+            background: rgba(255,255,255,0.3);
+            border-radius: 1px;
+        }
+
+        /* Layout Preview Grids */
+        .layout-preview.layout-1x1 { grid-template: 1fr / 1fr; }
+        .layout-preview.layout-1x1::before { content: ''; background: rgba(255,255,255,0.3); border-radius: 1px; }
+
+        .layout-preview.layout-1x2 { grid-template: 1fr / 1fr 1fr; }
+        .layout-preview.layout-1x2::before, .layout-preview.layout-1x2::after { content: ''; background: rgba(255,255,255,0.3); border-radius: 1px; }
+
+        .layout-preview.layout-2x2 { grid-template: 1fr 1fr / 1fr 1fr; }
+        .layout-preview.layout-3x3 { grid-template: 1fr 1fr 1fr / 1fr 1fr 1fr; }
+        .layout-preview.layout-4x4 { grid-template: 1fr 1fr 1fr 1fr / 1fr 1fr 1fr 1fr; }
+        .layout-preview.layout-3x2 { grid-template: 1fr 1fr 1fr / 1fr 1fr; }
+        .layout-preview.layout-4x2 { grid-template: 1fr 1fr 1fr 1fr / 1fr 1fr; }
+        .layout-preview.layout-3x4 { grid-template: 1fr 1fr 1fr / 1fr 1fr 1fr 1fr; }
+        .layout-preview.layout-4x3 { grid-template: 1fr 1fr 1fr 1fr / 1fr 1fr 1fr; }
+        .layout-preview.layout-5x3 { grid-template: 1fr 1fr 1fr 1fr 1fr / 1fr 1fr 1fr; }
+    </style>
+
+    <script>
+        // Initialize Layout Selector Modal
+        document.addEventListener('DOMContentLoaded', function() {
+            // Generate grid cells for each preview
+            document.querySelectorAll('.layout-quick-btn').forEach(btn => {
+                const rows = parseInt(btn.dataset.rows);
+                const cols = parseInt(btn.dataset.cols);
+                const preview = btn.querySelector('.layout-preview');
+                if (preview) {
+                    preview.innerHTML = '';
+                    for (let i = 0; i < rows * cols; i++) {
+                        const cell = document.createElement('div');
+                        preview.appendChild(cell);
+                    }
+                }
+            });
+
+            // Handle layout button clicks
+            document.querySelectorAll('.layout-quick-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const spots = parseInt(this.dataset.spots);
+                    const rows = parseInt(this.dataset.rows);
+                    const cols = parseInt(this.dataset.cols);
+
+                    // Update active state
+                    document.querySelectorAll('.layout-quick-btn').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+
+                    // Apply layout
+                    if (window.DICOM_VIEWER && window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.customGridManager) {
+                        window.DICOM_VIEWER.MANAGERS.customGridManager.applyCustomGrid(rows, cols);
+                    }
+
+                    // Update button text
+                    const dropdownText = document.getElementById('layoutDropdownText');
+                    if (dropdownText) {
+                        dropdownText.textContent = spots + (spots === 1 ? ' Spot' : ' Spots');
+                    }
+
+                    // Close modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('layoutSelectorModal'));
+                    if (modal) modal.hide();
+                });
+            });
+
+            // Handle advanced layouts button
+            document.getElementById('openAdvancedLayoutsBtn')?.addEventListener('click', function() {
+                setTimeout(() => {
+                    const advancedModal = new bootstrap.Modal(document.getElementById('customGridModal'));
+                    advancedModal.show();
+                }, 300);
+            });
+        });
     </script>
 
     <!-- Custom Grid Selector Modal with Advanced Layouts -->
