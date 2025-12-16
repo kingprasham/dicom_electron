@@ -12,7 +12,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         this.currentPage = 1;
         this.totalPages = 1;
         this.imagesPerPage = 4; // Default 2x2
-        this.maxImagesPerPage = 16; // Maximum 16 images per page (4x4)
+        this.maxImagesPerPage = 25; // Maximum 25 images per page (5x5) - supports all layouts
         this.isEnabled = false;
         this.pageNavigatorUI = null;
         this.showImageNumbers = false; // Disabled by default for cleaner viewing
@@ -40,13 +40,24 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
             return;
         }
 
-        // Get current layout from viewport-container CSS
+        // Get actual number of viewports by counting DOM elements
+        // This is more reliable than parsing CSS grid styles
         const viewportContainer = document.getElementById('viewport-container');
         if (viewportContainer) {
-            const containerStyles = window.getComputedStyle(viewportContainer);
-            const gridCols = containerStyles.gridTemplateColumns.split(' ').filter(s => s.trim()).length || 2;
-            const gridRows = containerStyles.gridTemplateRows.split(' ').filter(s => s.trim()).length || 2;
-            this.imagesPerPage = gridRows * gridCols;
+            const viewportCount = viewportContainer.querySelectorAll('.viewport').length;
+
+            if (viewportCount > 0) {
+                this.imagesPerPage = viewportCount;
+            } else {
+                // Fallback: try to parse CSS grid if no viewports yet
+                const containerStyles = window.getComputedStyle(viewportContainer);
+                const colParts = containerStyles.gridTemplateColumns.split(' ').filter(s => s.trim() && s !== 'none');
+                const rowParts = containerStyles.gridTemplateRows.split(' ').filter(s => s.trim() && s !== 'none');
+
+                const gridCols = colParts.length || 2;
+                const gridRows = rowParts.length || 2;
+                this.imagesPerPage = gridRows * gridCols;
+            }
         }
 
         // Enforce maximum of 16 images per page
@@ -55,11 +66,19 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
             console.log(`Capped images per page to ${this.maxImagesPerPage}`);
         }
 
+        // Ensure at least 1 image per page
+        if (this.imagesPerPage < 1) {
+            this.imagesPerPage = 1;
+        }
+
         this.totalPages = Math.ceil(totalImages / this.imagesPerPage);
 
         // Clamp current page
         if (this.currentPage > this.totalPages) {
             this.currentPage = this.totalPages;
+        }
+        if (this.currentPage < 1) {
+            this.currentPage = 1;
         }
 
         // Enable/disable based on whether we need pagination
@@ -77,6 +96,60 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         }
 
         console.log(`Page calculation: ${totalImages} images, ${this.imagesPerPage} per page (max ${this.maxImagesPerPage}) = ${this.totalPages} pages`);
+    }
+
+    /**
+     * Observe layout changes and recalculate pages when layout changes
+     * Auto-adjusts images when switching layouts (e.g., 4x4 to 3x3)
+     */
+    observeLayoutChanges() {
+        // Listen for layout change events
+        document.addEventListener('layoutChanged', (e) => {
+            console.log('Layout changed event detected', e.detail);
+
+            // Delay to let viewports be created first (300ms for reliability)
+            setTimeout(() => {
+                // Recalculate pages based on new layout
+                this.calculatePages();
+
+                // If we have images, reload them for the current page
+                const state = window.DICOM_VIEWER.STATE;
+                if (state.currentSeriesImages && state.currentSeriesImages.length > 0) {
+                    // Reset to page 1 when layout changes
+                    this.currentPage = 1;
+                    this.loadCurrentPageImages();
+
+                    // Update page indicator
+                    this.updatePageIndicator();
+                }
+
+                console.log(`Layout change complete: ${this.totalPages} pages, ${this.imagesPerPage} images per page`);
+            }, 300);
+        });
+
+        // Also observe viewport container for child changes (fallback)
+        const viewportContainer = document.getElementById('viewport-container');
+        if (viewportContainer) {
+            const observer = new MutationObserver((mutations) => {
+                // Only react if viewports were added or removed
+                const viewportsChanged = mutations.some(m =>
+                    m.addedNodes.length > 0 || m.removedNodes.length > 0
+                );
+
+                if (viewportsChanged) {
+                    // Debounce to avoid multiple triggers
+                    clearTimeout(this._layoutChangeTimeout);
+                    this._layoutChangeTimeout = setTimeout(() => {
+                        console.log('Viewport container structure changed');
+                        this.calculatePages();
+                    }, 200);
+                }
+            });
+
+            observer.observe(viewportContainer, { childList: true });
+        }
+
+        console.log('Layout change observation enabled');
     }
 
     /**
@@ -275,6 +348,10 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         for (let i = 0; i < viewports.length; i++) {
             const viewport = viewports[i];
             const image = pageImages[i];
+            const globalImageNumber = startIndex + i + 1;
+
+            // Update viewport label to show global image number
+            this.updateViewportLabel(viewport, image ? globalImageNumber : null, i + 1);
 
             if (image) {
                 try {
@@ -300,7 +377,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                         await cornerstone.displayImage(viewport, loadedImage);
 
                         // Add image number overlay
-                        this.addImageNumberOverlay(viewport, startIndex + i + 1);
+                        this.addImageNumberOverlay(viewport, globalImageNumber);
 
                         // Restore text annotations for this image
                         if (window.DICOM_VIEWER.MANAGERS?.textAnnotationTool) {
@@ -309,7 +386,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                     }
                 } catch (err) {
                     console.error(`Error loading image ${startIndex + i}:`, err);
-                    this.showErrorInViewport(viewport, startIndex + i + 1);
+                    this.showErrorInViewport(viewport, globalImageNumber);
                 }
             } else {
                 // Clear viewport if no image for this slot
@@ -359,6 +436,56 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
     }
 
     /**
+     * Update viewport label to show global image number
+     * @param {HTMLElement} viewport - The viewport element
+     * @param {number|null} globalImageNumber - Global image number (null if empty)
+     * @param {number} slotNumber - Viewport slot number (1-based)
+     */
+    updateViewportLabel(viewport, globalImageNumber, slotNumber) {
+        // Find or create the viewport-number-overlay
+        let numberOverlay = viewport.querySelector('.viewport-number-overlay');
+
+        if (!numberOverlay) {
+            // Create the overlay if it doesn't exist (for viewports from viewport-manager)
+            numberOverlay = document.createElement('div');
+            numberOverlay.className = 'viewport-number-overlay';
+            numberOverlay.style.cssText = `
+                position: absolute;
+                top: 8px;
+                left: 8px;
+                background: rgba(0, 0, 0, 0.7);
+                color: #0d6efd;
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 600;
+                z-index: 10;
+            `;
+            viewport.appendChild(numberOverlay);
+        }
+
+        if (globalImageNumber !== null) {
+            numberOverlay.textContent = globalImageNumber;
+            numberOverlay.title = `Image ${globalImageNumber} (Slot ${slotNumber})`;
+            numberOverlay.style.color = '#0d6efd'; // Blue for images
+        } else {
+            numberOverlay.textContent = `${slotNumber} (Empty)`;
+            numberOverlay.title = `Empty viewport (Slot ${slotNumber})`;
+            numberOverlay.style.color = '#6c757d'; // Gray for empty
+        }
+
+        // Also update the viewport-overlay (shows view type like Original/Axial/etc)
+        const viewportOverlay = viewport.querySelector('.viewport-overlay');
+        if (viewportOverlay) {
+            if (globalImageNumber !== null) {
+                viewportOverlay.textContent = `Viewport ${globalImageNumber}`;
+            } else {
+                viewportOverlay.textContent = `Viewport ${slotNumber}`;
+            }
+        }
+    }
+
+    /**
      * Show error in viewport
      */
     showErrorInViewport(viewport, imageNumber) {
@@ -374,43 +501,74 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
     }
 
     /**
-     * Clear viewport - properly reset to empty state
+     * Clear viewport - properly reset to empty state with visible empty indicator
      */
     clearViewport(viewport) {
-        // Remove any overlays first
-        const existing = viewport.querySelector('.image-page-number');
-        if (existing) existing.remove();
+        // Remove any overlays
+        const existingOverlay = viewport.querySelector('.image-page-number');
+        if (existingOverlay) existingOverlay.remove();
 
-        // Remove any empty viewport indicator
-        const emptyIndicator = viewport.querySelector('.empty-viewport-indicator');
-        if (emptyIndicator) emptyIndicator.remove();
+        // Remove any previous empty indicator
+        const prevEmpty = viewport.querySelector('.empty-viewport-indicator');
+        if (prevEmpty) prevEmpty.remove();
 
         try {
+            // Try to disable cornerstone on this viewport to stop it from rendering
             const enabledElement = cornerstone.getEnabledElement(viewport);
             if (enabledElement) {
-                // Clear the canvas completely with pure black
-                const canvas = viewport.querySelector('canvas');
-                if (canvas) {
-                    const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = '#000000';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                }
-
-                // Invalidate the image in cornerstone
+                // Clear the image reference completely
                 if (enabledElement.image) {
                     enabledElement.image = null;
+                }
+
+                // Clear all canvases
+                const canvases = viewport.querySelectorAll('canvas');
+                canvases.forEach(canvas => {
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                });
+
+                // Force cornerstone to update (will show blank)
+                try {
                     cornerstone.updateImage(viewport);
+                } catch (updateErr) {
+                    // Ignore update errors
                 }
             }
         } catch (e) {
-            // Viewport not enabled - just clear any canvas we find
-            const canvas = viewport.querySelector('canvas');
-            if (canvas) {
+            // Viewport not enabled by cornerstone - just clear any canvas
+            const canvases = viewport.querySelectorAll('canvas');
+            canvases.forEach(canvas => {
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#000000';
+                ctx.fillStyle = '#1a1a1a';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
+            });
         }
+
+        // Add visible empty viewport indicator
+        const emptyIndicator = document.createElement('div');
+        emptyIndicator.className = 'empty-viewport-indicator';
+        emptyIndicator.innerHTML = `
+            <div style="
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                background: #1a1a1a;
+                color: #555;
+                z-index: 5;
+            ">
+                <i class="bi bi-image" style="font-size: 24px; opacity: 0.5;"></i>
+                <span style="font-size: 11px; margin-top: 4px;">Empty</span>
+            </div>
+        `;
+        viewport.appendChild(emptyIndicator);
     }
 
     /**
@@ -464,13 +622,30 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
     /**
      * Manually trigger page calculation and loading
-     * Call this after images are loaded
+     * Call this after images are loaded or layout changes
      */
     refresh() {
+        console.log('PageNavigator.refresh() called');
+
+        // Recalculate pages based on current viewports
         this.calculatePages();
-        if (this.isEnabled) {
+
+        // Always try to load images if we have them
+        const state = window.DICOM_VIEWER.STATE;
+        if (state.currentSeriesImages && state.currentSeriesImages.length > 0) {
+            // Enable pagination if needed
+            if (this.totalPages > 1 && !this.isEnabled) {
+                this.enable();
+            }
+
+            // Load images for current page
             this.loadCurrentPageImages();
+
+            // Update the page indicator
+            this.updatePageIndicator();
         }
+
+        console.log(`PageNavigator refreshed: ${this.totalPages} pages, ${this.imagesPerPage} per page, current page ${this.currentPage}`);
     }
 };
 

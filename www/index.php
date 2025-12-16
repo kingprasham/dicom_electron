@@ -1088,10 +1088,6 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                                 <div class="layout-preview layout-3x4"></div>
                                 <span>12</span>
                             </button>
-                            <button class="btn btn-outline-light layout-quick-btn" data-spots="16" data-rows="4" data-cols="4">
-                                <div class="layout-preview layout-4x4"></div>
-                                <span>16</span>
-                            </button>
                         </div>
                     </div>
                     <!-- Portrait Layouts -->
@@ -1109,6 +1105,10 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                             <button class="btn btn-outline-light layout-quick-btn" data-spots="15" data-rows="5" data-cols="3">
                                 <div class="layout-preview layout-5x3"></div>
                                 <span>15</span>
+                            </button>
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="18" data-rows="6" data-cols="3">
+                                <div class="layout-preview layout-6x3"></div>
+                                <span>18</span>
                             </button>
                         </div>
                     </div>
@@ -1190,6 +1190,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
         .layout-preview.layout-3x4 { grid-template: 1fr 1fr 1fr / 1fr 1fr 1fr 1fr; }
         .layout-preview.layout-4x3 { grid-template: 1fr 1fr 1fr 1fr / 1fr 1fr 1fr; }
         .layout-preview.layout-5x3 { grid-template: 1fr 1fr 1fr 1fr 1fr / 1fr 1fr 1fr; }
+        .layout-preview.layout-6x3 { grid-template: 1fr 1fr 1fr 1fr 1fr 1fr / 1fr 1fr 1fr; }
     </style>
 
     <script>
@@ -1230,6 +1231,11 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     if (dropdownText) {
                         dropdownText.textContent = spots + (spots === 1 ? ' Spot' : ' Spots');
                     }
+
+                    // Dispatch layout change event so page navigator reloads images
+                    document.dispatchEvent(new CustomEvent('layoutChanged', { 
+                        detail: { rows, cols, spots, source: 'quickButton' }
+                    }));
 
                     // Close modal
                     const modal = bootstrap.Modal.getInstance(document.getElementById('layoutSelectorModal'));
@@ -1657,6 +1663,120 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                                         </div>
                                     </div>
                                 </fieldset>
+                                
+                                <!-- 15 to 18 Spots -->
+                                <fieldset class="layout-fieldset" style="border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 15px;">
+                                    <legend style="color: #dc3545; font-size: 13px; padding: 0 10px; width: auto;">15 to 18 Spots</legend>
+                                    <div class="preset-layouts-grid d-flex flex-wrap gap-3">
+                                        <div class="layout-preset-card" data-rows="5" data-cols="3" title="5×3">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">15</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="3" data-cols="5" title="3×5">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">15</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="4" data-cols="4" title="4×4">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">16</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="6" data-cols="3" title="6×3">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: repeat(6, 1fr); gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">18</span>
+                                        </div>
+                                        <div class="layout-preset-card" data-rows="3" data-cols="6" title="3×6">
+                                            <div class="preset-preview" style="display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: 1fr 1fr 1fr; gap: 2px;">
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                                <div style="background: #333; border: 1px solid #555;"></div>
+                                            </div>
+                                            <span class="preset-label">18</span>
+                                        </div>
+                                    </div>
+                                </fieldset>
                             </div>
                         </div>
                     </div>
@@ -1850,54 +1970,76 @@ $userRole = $_SESSION['role'] ?? 'viewer';
     <!-- Custom Grid Functionality -->
     <script>
         (function() {
-            const customGridBtn = document.getElementById('customGridBtn');
-            const customGridModal = new bootstrap.Modal(document.getElementById('customGridModal'));
-            const gridRowsInput = document.getElementById('gridRows');
-            const gridColsInput = document.getElementById('gridCols');
-            const gridPreview = document.getElementById('gridPreview');
-            const applyCustomGridBtn = document.getElementById('applyCustomGrid');
-
-            // Update preview when inputs change
-            function updatePreview() {
-                const rows = parseInt(gridRowsInput.value) || 1;
-                const cols = parseInt(gridColsInput.value) || 1;
-                const total = rows * cols;
-                gridPreview.textContent = `Grid: ${rows} × ${cols} (${total} viewport${total > 1 ? 's' : ''})`;
+            // Wait for DOM to be fully loaded
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initCustomGrid);
+            } else {
+                initCustomGrid();
             }
-
-            gridRowsInput.addEventListener('input', updatePreview);
-            gridColsInput.addEventListener('input', updatePreview);
-
-            // Show modal when button clicked
-            customGridBtn.addEventListener('click', function() {
-                customGridModal.show();
-            });
-
-            // Apply custom grid
-            applyCustomGridBtn.addEventListener('click', function() {
-                const rows = parseInt(gridRowsInput.value) || 1;
-                const cols = parseInt(gridColsInput.value) || 1;
-
-                // Validate
-                if (rows < 1 || rows > 5 || cols < 1 || cols > 5) {
-                    alert('Please enter valid rows and columns (1-5)');
+            
+            function initCustomGrid() {
+                console.log('Initializing Custom Grid Layout...');
+                
+                const customGridBtn = document.getElementById('customGridBtn');
+                const customGridModalEl = document.getElementById('customGridModal');
+                const gridRowsInput = document.getElementById('gridRows');
+                const gridColsInput = document.getElementById('gridCols');
+                const gridPreview = document.getElementById('gridPreview');
+                const applyCustomGridBtn = document.getElementById('applyCustomGrid');
+                
+                if (!customGridModalEl) {
+                    console.error('customGridModal not found!');
                     return;
                 }
+                
+                const customGridModal = new bootstrap.Modal(customGridModalEl);
+                
+                // Update preview when inputs change
+                function updatePreview() {
+                    if (!gridRowsInput || !gridColsInput || !gridPreview) return;
+                    const rows = parseInt(gridRowsInput.value) || 1;
+                    const cols = parseInt(gridColsInput.value) || 1;
+                    const total = rows * cols;
+                    gridPreview.textContent = `Grid: ${rows} × ${cols} (${total} viewport${total > 1 ? 's' : ''})`;
+                }
+                
+                if (gridRowsInput) gridRowsInput.addEventListener('input', updatePreview);
+                if (gridColsInput) gridColsInput.addEventListener('input', updatePreview);
 
-                const total = rows * cols;
-                if (total > 25) {
-                    alert('Maximum 25 viewports allowed (5×5)');
-                    return;
+                // Show modal when button clicked
+                if (customGridBtn) {
+                    customGridBtn.addEventListener('click', function() {
+                        customGridModal.show();
+                    });
                 }
 
-                console.log(`Creating custom grid: ${rows} rows × ${cols} columns (${total} viewports)`);
+                // Apply custom grid
+                if (applyCustomGridBtn) {
+                    applyCustomGridBtn.addEventListener('click', function() {
+                        const rows = parseInt(gridRowsInput?.value) || 1;
+                        const cols = parseInt(gridColsInput?.value) || 1;
 
-                // Close modal
-                customGridModal.hide();
+                        // Validate
+                        if (rows < 1 || rows > 5 || cols < 1 || cols > 5) {
+                            alert('Please enter valid rows and columns (1-5)');
+                            return;
+                        }
 
-                // Create the custom grid layout
-                createCustomGridLayout(rows, cols);
-            });
+                        const total = rows * cols;
+                        if (total > 25) {
+                            alert('Maximum 25 viewports allowed (5×5)');
+                            return;
+                        }
+
+                        console.log(`Creating custom grid: ${rows} rows × ${cols} columns (${total} viewports)`);
+
+                        // Close modal
+                        customGridModal.hide();
+
+                        // Create the custom grid layout
+                        createCustomGridLayout(rows, cols);
+                    });
+                }
 
             function createCustomGridLayout(rows, cols) {
                 const viewportManager = window.DICOM_VIEWER.MANAGERS.viewportManager;
@@ -1947,17 +2089,23 @@ $userRole = $_SESSION['role'] ?? 'viewer';
             // Initialize preview
             updatePreview();
 
-            // Handle preset layout card clicks
-            document.querySelectorAll('.layout-preset-card').forEach(card => {
-                card.addEventListener('click', function() {
-                    const rows = parseInt(this.dataset.rows);
-                    const cols = parseInt(this.dataset.cols);
-                    const customLayout = this.dataset.layout;
-                    const isCustom = this.dataset.custom === 'true';
+            // Handle preset layout card clicks using event delegation
+            customGridModalEl.addEventListener('click', function(e) {
+                const card = e.target.closest('.layout-preset-card');
+                if (!card) return;
+                
+                const rows = parseInt(card.dataset.rows);
+                const cols = parseInt(card.dataset.cols);
+                const customLayout = card.dataset.layout;
+                const isCustom = card.dataset.custom === 'true';
+                
+                console.log('Layout card clicked:', { rows, cols, customLayout, isCustom });
 
-                    // Close the modal first
-                    customGridModal.hide();
+                // Close the modal first
+                customGridModal.hide();
 
+                // Use timeout to allow modal to close
+                setTimeout(function() {
                     if (!isCustom && rows && cols) {
                         // Standard grid layout
                         console.log(`Applying preset grid: ${rows}x${cols}`);
@@ -1969,11 +2117,12 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     }
 
                     // Show confirmation
-                    if (window.DICOM_VIEWER.showAISuggestion) {
-                        const spots = this.querySelector('.preset-label').textContent;
+                    if (window.DICOM_VIEWER && window.DICOM_VIEWER.showAISuggestion) {
+                        const labelEl = card.querySelector('.preset-label');
+                        const spots = labelEl ? labelEl.textContent : (rows * cols);
                         window.DICOM_VIEWER.showAISuggestion(`Applied ${spots}-viewport layout`);
                     }
-                });
+                }, 100);
             });
 
             // Apply asymmetric layouts using CSS Grid template areas
@@ -2139,6 +2288,9 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     detail: { type: 'asymmetric', layout: layoutId, spots: layout.viewports } 
                 }));
             }
+            
+            console.log('Custom Grid Layout initialized successfully');
+            } // Close initCustomGrid function
         })();
     </script>
 

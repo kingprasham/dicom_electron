@@ -26,7 +26,8 @@
     /* Pink */
 }
 
-html, body {
+html,
+body {
     height: 100%;
     overflow: hidden !important;
 }
@@ -573,12 +574,12 @@ body {
     margin-bottom: 8px;
 }
 
-.series-list-container.large-thumbnails .series-item > div:first-child {
+.series-list-container.large-thumbnails .series-item>div:first-child {
     margin-right: 0 !important;
     width: 100%;
 }
 
-.series-list-container.large-thumbnails .series-item > div:nth-child(2) {
+.series-list-container.large-thumbnails .series-item>div:nth-child(2) {
     text-align: center;
 }
 
@@ -586,7 +587,7 @@ body {
     justify-content: center !important;
 }
 
-.series-list-container.large-thumbnails .series-item > div:last-child {
+.series-list-container.large-thumbnails .series-item>div:last-child {
     position: absolute;
     top: 8px;
     right: 8px;
@@ -627,9 +628,12 @@ body {
 }
 
 @keyframes floatBtnPulse {
-    0%, 100% {
+
+    0%,
+    100% {
         box-shadow: 0 4px 20px rgba(13, 110, 253, 0.4);
     }
+
     50% {
         box-shadow: 0 4px 30px rgba(13, 110, 253, 0.6);
     }
@@ -3685,4 +3689,154 @@ body.reporting-mode #viewport-container {
 /* Hide medical report button when report panel is open */
 body.advanced-report-open #medicalReportBtn {
     display: none !important;
+}
+
+/* ============================================
+   PRINT STYLES FOR LAYOUT OPTIMIZATION
+   ============================================ */
+
+@media print {
+
+    /* Hide non-essential UI elements */
+    header,
+    .sidebar,
+    .mpr-controls,
+    .floating-tools-panel,
+    .viewer-page-navigator,
+    #floating-report-btn,
+    .ai-suggestion-banner,
+    .modal,
+    .toast,
+    .viewport-overlay,
+    .active-status-indicator,
+    .slice-indicator,
+    .stack-scroll-indicator,
+    .mpr-scroll-indicator,
+    .viewport-number-overlay {
+        display: none !important;
+    }
+
+    /* Reset body for printing */
+    body {
+        background: white !important;
+        margin: 0;
+        padding: 0;
+        overflow: visible !important;
+    }
+
+    /* Main content takes full page */
+    .main-layout {
+        display: block !important;
+        height: auto !important;
+    }
+
+    /* Viewport container fills page */
+    .viewport-container,
+    #viewport-container {
+        width: 100% !important;
+        height: 95vh !important;
+        margin: 0 !important;
+        padding: 0.5cm !important;
+        box-sizing: border-box !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        background: white !important;
+    }
+
+    /* Asymmetric layouts print support */
+    .viewport-container.layout-asymmetric {
+        height: auto !important;
+        min-height: 85vh !important;
+    }
+
+    /* Individual viewport styling */
+    .viewport {
+        border: 1px solid #333 !important;
+        background: #000 !important;
+        box-shadow: none !important;
+        break-inside: avoid !important;
+    }
+
+    /* Ensure canvas is visible */
+    .viewport canvas {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+    }
+}
+
+/* Portrait paper orientation - optimize for vertical layouts */
+@media print and (orientation: portrait) {
+    .viewport-container {
+        /* Prefer more rows than columns for portrait */
+        grid-template-columns: repeat(auto-fit, minmax(45%, 1fr)) !important;
+    }
+
+    /* Portrait-optimized layouts */
+    .viewport-container[data-layout-type="1+2-left"],
+    .viewport-container[data-layout-type="1+2-right"],
+    .viewport-container[data-layout-type="1+3-left"],
+    .viewport-container[data-layout-type="1+3-right"] {
+        grid-template-columns: 1fr 1fr !important;
+    }
+
+    /* Stack vertical layouts better */
+    .viewport-container[data-layout-type="2+2+1"],
+    .viewport-container[data-layout-type="1+2+2"] {
+        grid-template-rows: 1fr 1fr 1fr !important;
+    }
+}
+
+/* Landscape paper orientation - optimize for horizontal layouts */
+@media print and (orientation: landscape) {
+    .viewport-container {
+        /* Prefer more columns than rows for landscape */
+        grid-template-rows: repeat(auto-fit, minmax(40%, 1fr)) !important;
+    }
+
+    /* Landscape-optimized layouts */
+    .viewport-container[data-layout-type="2+1-top"],
+    .viewport-container[data-layout-type="2+1-bottom"],
+    .viewport-container[data-layout-type="3+1-top"],
+    .viewport-container[data-layout-type="3+1-bottom"] {
+        grid-template-rows: 1fr 1fr !important;
+    }
+
+    /* Widen horizontal layouts */
+    .viewport-container[data-layout-type="1+4-big"] {
+        grid-template-columns: 2fr 1fr 1fr !important;
+    }
+}
+
+/* ============================================
+   LAYOUT ORIENTATION INDICATORS
+   ============================================ */
+
+/* Portrait-optimized badge for UI */
+.layout-preset-card[data-rows]::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 8px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    opacity: 0.7;
+}
+
+.layout-preset-card[data-rows="3"][data-cols="2"]::after,
+.layout-preset-card[data-rows="4"][data-cols="2"]::after,
+.layout-preset-card[data-rows="5"][data-cols="3"]::after,
+.layout-preset-card[data-rows="4"][data-cols="3"]::after {
+    content: 'Portrait';
+    background: #6366f1;
+    color: white;
+}
+
+.layout-preset-card[data-rows="2"][data-cols="3"]::after,
+.layout-preset-card[data-rows="2"][data-cols="4"]::after,
+.layout-preset-card[data-rows="3"][data-cols="4"]::after {
+    content: 'Landscape';
+    background: #10b981;
+    color: white;
 }

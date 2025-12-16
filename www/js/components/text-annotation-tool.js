@@ -82,6 +82,12 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
                             <input type="color" id="customTextColor" value="${this.settings.fontColor}" title="Custom Color">
                         </div>
                     </div>
+                    <div class="setting-group" style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px; margin-top: 8px;">
+                        <button id="applyToSelectedText" class="btn btn-sm btn-outline-primary w-100" style="font-size: 12px;">
+                            <i class="bi bi-check2-circle me-1"></i>Apply to Selected
+                        </button>
+                        <small class="d-block text-muted mt-1" style="font-size: 10px;">Click a text annotation to select it, then click this button</small>
+                    </div>
                 </div>
             </div>
 
@@ -440,6 +446,45 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
         document.getElementById('closeTextSettings')?.addEventListener('click', () => {
             this.hideSettingsPanel();
         });
+
+        // Apply to Selected button
+        document.getElementById('applyToSelectedText')?.addEventListener('click', () => {
+            this.applySettingsToSelected();
+        });
+    }
+
+    /**
+     * Apply current settings to the selected annotation
+     */
+    applySettingsToSelected() {
+        if (!this.selectedAnnotation) {
+            window.DICOM_VIEWER.showAISuggestion('No annotation selected. Click a text annotation first.');
+            return;
+        }
+
+        const content = this.selectedAnnotation.querySelector('.text-annotation-content');
+        if (!content) return;
+
+        // Apply current settings to the selected annotation's DOM
+        content.style.fontSize = `${this.settings.fontSize}px`;
+        content.style.color = this.settings.fontColor;
+        content.style.fontFamily = this.settings.fontFamily;
+        content.style.background = this.settings.backgroundColor;
+        content.style.padding = `${this.settings.padding}px`;
+
+        // Update stored annotation data
+        const annotationId = this.selectedAnnotation.dataset.id;
+        const imageId = this.selectedAnnotation.dataset.imageId;
+
+        if (imageId && this.annotationsByImageId.has(imageId)) {
+            const annotations = this.annotationsByImageId.get(imageId);
+            const stored = annotations.find(a => a.id === annotationId);
+            if (stored) {
+                stored.settings = { ...this.settings };
+            }
+        }
+
+        window.DICOM_VIEWER.showAISuggestion(`Updated annotation style: ${this.settings.fontSize}px, ${this.settings.fontColor}`);
     }
 
     /**

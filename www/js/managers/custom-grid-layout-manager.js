@@ -274,6 +274,28 @@ window.DICOM_VIEWER.CustomGridLayoutManager = class {
         // Update button states
         this.updateLayoutButtonStates();
 
+        // CRITICAL: Dispatch layout changed event to recalculate pages
+        // This ensures the page navigator updates when switching layouts
+        document.dispatchEvent(new CustomEvent('layoutChanged', {
+            detail: {
+                rows,
+                cols,
+                spots: rows * cols,
+                source: 'applyCustomGrid'
+            }
+        }));
+
+        // DIRECT CALL: Force page navigator to recalculate after viewports are created
+        // This is more reliable than events which may have timing issues
+        setTimeout(() => {
+            const pageNavigator = window.DICOM_VIEWER?.MANAGERS?.pageNavigator;
+            if (pageNavigator) {
+                console.log('Direct call to pageNavigator.refresh() after layout change');
+                pageNavigator.currentPage = 1; // Reset to first page
+                pageNavigator.refresh();
+            }
+        }, 400); // Wait for viewports to be fully created
+
         console.log(`Applied custom grid: ${rows}x${cols}`);
     }
 
@@ -300,6 +322,23 @@ window.DICOM_VIEWER.CustomGridLayoutManager = class {
         container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
         container.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
         container.style.gap = '2px';
+
+        // Portrait layout detection: more rows than columns = portrait
+        // For portrait layouts, constrain the width to give each viewport a portrait aspect ratio
+        const isPortraitLayout = rows > cols;
+        if (isPortraitLayout) {
+            // Calculate appropriate width based on number of columns
+            // Fewer columns = narrower container
+            const widthPercent = Math.min(80, 25 * cols); // 25% per column, max 80%
+            container.style.maxWidth = `${widthPercent}%`;
+            container.style.margin = '0 auto'; // Center the container
+            container.classList.add('portrait-layout');
+        } else {
+            // Landscape or square layout - use full width
+            container.style.maxWidth = '';
+            container.style.margin = '';
+            container.classList.remove('portrait-layout');
+        }
 
         // Update dropdown text if it exists
         const dropdownText = document.getElementById('layoutDropdownText');
@@ -336,6 +375,7 @@ window.DICOM_VIEWER.CustomGridLayoutManager = class {
 
     /**
      * Calculate optimal grid for given number of images
+     * Automatically adapts to screen orientation
      */
     calculateOptimalGrid(imageCount) {
         if (imageCount <= 0) return { rows: 1, cols: 1 };
@@ -347,16 +387,56 @@ window.DICOM_VIEWER.CustomGridLayoutManager = class {
             imageCount = maxViewports;
         }
 
-        // Calculate square root
+        // Check orientation
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const isPortrait = window.innerHeight > window.innerWidth;
+
+        // Predefined optimal layouts for common image counts
+        const portraitOptimal = {
+            2: { rows: 2, cols: 1 },
+            3: { rows: 3, cols: 1 },
+            4: { rows: 2, cols: 2 },
+            5: { rows: 3, cols: 2 },
+            6: { rows: 3, cols: 2 },
+            8: { rows: 4, cols: 2 },
+            9: { rows: 3, cols: 3 },
+            10: { rows: 5, cols: 2 },
+            12: { rows: 4, cols: 3 },
+            15: { rows: 5, cols: 3 }
+        };
+
+        const landscapeOptimal = {
+            2: { rows: 1, cols: 2 },
+            3: { rows: 1, cols: 3 },
+            4: { rows: 2, cols: 2 },
+            5: { rows: 2, cols: 3 },
+            6: { rows: 2, cols: 3 },
+            8: { rows: 2, cols: 4 },
+            9: { rows: 3, cols: 3 },
+            10: { rows: 2, cols: 5 },
+            12: { rows: 3, cols: 4 },
+            15: { rows: 3, cols: 5 }
+        };
+
+        // Check for predefined optimal layouts
+        if (isPortrait && portraitOptimal[imageCount]) {
+            return portraitOptimal[imageCount];
+        }
+        if (isLandscape && landscapeOptimal[imageCount]) {
+            return landscapeOptimal[imageCount];
+        }
+
+        // Calculate square root for fallback
         const sqrt = Math.sqrt(imageCount);
         let cols = Math.ceil(sqrt);
         let rows = Math.ceil(imageCount / cols);
 
         // Optimize for screen orientation
-        const isLandscape = window.innerWidth > window.innerHeight;
-
         if (isLandscape && rows > cols) {
             [rows, cols] = [cols, rows]; // Swap to prefer landscape
+        }
+        if (isPortrait && cols > rows) {
+            [rows, cols] = [cols, rows]; // Swap to prefer portrait
         }
 
         // Limit to max grid size
@@ -365,7 +445,70 @@ window.DICOM_VIEWER.CustomGridLayoutManager = class {
 
         return { rows, cols };
     }
-};
+
+    /**
+     * Get optimal layout for printing based on paper orientation
+     * @param {number} spots - Number of viewport spots
+     * @param {string} paperOrientation - 'portrait' or 'landscape'
+     * @returns {Object} Layout configuration
+     */
+    getOptimalLayoutForPrint(spots, paperOrientation = 'portrait') {
+        const isPortrait = paperOrientation === 'portrait';
+
+        // Optimal layouts for printing (based on medical imaging standards)
+        // Portrait paper: more rows than columns
+        // Landscape paper: more columns than rows
+        const printLayouts = {
+            portrait: {
+                1: { rows: 1, cols: 1, layout: '1x1' },
+                2: { rows: 2, cols: 1, layout: '2x1' },
+                3: { rows: 3, cols: 1, layout: '3x1' },
+                4: { rows: 2, cols: 2, layout: '2x2' },
+                5: { rows: 3, cols: 2, layout: '3x2' },
+                6: { rows: 3, cols: 2, layout: '3x2' },
+                8: { rows: 4, cols: 2, layout: '4x2' },
+                9: { rows: 3, cols: 3, layout: '3x3' },
+                12: { rows: 4, cols: 3, layout: '4x3' },
+                15: { rows: 5, cols: 3, layout: '5x3' }
+            },
+            landscape: {
+                1: { rows: 1, cols: 1, layout: '1x1' },
+                2: { rows: 1, cols: 2, layout: '1x2' },
+                3: { rows: 1, cols: 3, layout: '1x3' },
+                4: { rows: 2, cols: 2, layout: '2x2' },
+                5: { rows: 2, cols: 3, layout: '2x3' },
+                6: { rows: 2, cols: 3, layout: '2x3' },
+                8: { rows: 2, cols: 4, layout: '2x4' },
+                9: { rows: 3, cols: 3, layout: '3x3' },
+                12: { rows: 3, cols: 4, layout: '3x4' },
+                15: { rows: 3, cols: 5, layout: '3x5' }
+            }
+        };
+
+        const layouts = isPortrait ? printLayouts.portrait : printLayouts.landscape;
+
+        // Find exact match or closest lower
+        if (layouts[spots]) {
+            return layouts[spots];
+        }
+
+        // Find closest available layout
+        const availableSpots = Object.keys(layouts).map(Number).sort((a, b) => a - b);
+        const closestSpot = availableSpots.reduce((prev, curr) => {
+            return (curr <= spots && curr > prev) ? curr : prev;
+        }, 1);
+
+        return layouts[closestSpot] || layouts[1];
+    }
+
+    /**
+     * Get current screen orientation
+     * @returns {string} 'portrait' or 'landscape'
+     */
+    getScreenOrientation() {
+        return window.innerHeight > window.innerWidth ? 'portrait' : 'landscape';
+    }
+}
 
 // Auto-initialize when DOM is ready
 if (document.readyState === 'loading') {

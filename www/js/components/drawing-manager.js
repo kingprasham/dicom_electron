@@ -1,5 +1,5 @@
-// Custom Drawing Tool Manager - Click to Start, Click to End
-// First left click starts drawing, follows mouse, second left click ends drawing
+// Custom Drawing Tool Manager - Press and Hold to Draw
+// Hold left mouse button to draw, release to finish
 
 window.DICOM_VIEWER.DrawingManager = class {
     constructor() {
@@ -50,9 +50,14 @@ window.DICOM_VIEWER.DrawingManager = class {
         if (viewport._drawingListenersAttached) return;
         viewport._drawingListenersAttached = true;
 
-        // Use click for start/end toggle
-        viewport.addEventListener('click', (e) => this.onClick(e, viewport));
+        // Use mousedown to START drawing
+        viewport.addEventListener('mousedown', (e) => this.onMouseDown(e, viewport));
+
+        // Use mousemove to continue drawing while mouse is down
         viewport.addEventListener('mousemove', (e) => this.onMouseMove(e, viewport));
+
+        // Use mouseup to END drawing
+        viewport.addEventListener('mouseup', (e) => this.onMouseUp(e, viewport));
 
         // End drawing if mouse leaves viewport
         viewport.addEventListener('mouseleave', (e) => {
@@ -105,18 +110,23 @@ window.DICOM_VIEWER.DrawingManager = class {
         return canvas;
     }
 
-    onClick(e, viewport) {
+    onMouseDown(e, viewport) {
         if (!this.isDrawToolActive()) return;
         if (e.button !== 0) return; // Only left mouse button
 
         e.preventDefault();
         e.stopPropagation();
 
-        if (!this.isDrawing) {
-            // First click - START drawing
-            this.startDrawing(e, viewport);
-        } else if (this.activeViewport === viewport) {
-            // Second click on same viewport - END drawing
+        // Start drawing on mousedown
+        this.startDrawing(e, viewport);
+    }
+
+    onMouseUp(e, viewport) {
+        if (!this.isDrawToolActive()) return;
+        if (e.button !== 0) return; // Only left mouse button
+
+        if (this.isDrawing && this.activeViewport === viewport) {
+            // End drawing on mouseup
             this.endDrawing();
         }
     }
@@ -143,7 +153,7 @@ window.DICOM_VIEWER.DrawingManager = class {
 
         // Show visual feedback that drawing has started
         if (window.DICOM_VIEWER.showAISuggestion) {
-            window.DICOM_VIEWER.showAISuggestion('Drawing started - click again to finish');
+            window.DICOM_VIEWER.showAISuggestion('Drawing... release mouse to finish');
         }
 
         console.log('Drawing STARTED at:', x, y);
