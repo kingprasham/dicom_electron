@@ -1572,8 +1572,8 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
 
                 /* Adjust main content/viewport when report is open */
                 body.advanced-report-open #main-content {
-                    margin-right: 450px;
-                    transition: margin-right 0.3s ease;
+                    padding-right: 450px; /* Use padding instead of margin so absolute child aligns to right edge */
+                    transition: padding-right 0.3s ease;
                 }
 
                 body.advanced-report-open #viewport-container {

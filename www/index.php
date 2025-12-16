@@ -384,6 +384,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
             flex: 1;
             min-width: 0;
             transition: all 0.3s ease;
+            position: relative; /* Added to anchor absolute positioned children like report panel */
         }
     </style>
 
