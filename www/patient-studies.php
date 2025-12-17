@@ -315,9 +315,14 @@ $clinicsStmt->close();
                 <i class="bi bi-file-medical text-primary me-2"></i>
                 Studies
             </h4>
-            <button class="btn btn-primary btn-sm" onclick="window.location.reload()">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-info btn-sm" id="mergeBtn" disabled onclick="mergeSelectedStudies()">
+                    <i class="bi bi-collection-play me-1"></i> Merge Selected
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="window.location.reload()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
         </div>
 
         <?php if (empty($studies)): ?>
@@ -332,6 +337,9 @@ $clinicsStmt->close();
                 <table class="table table-dark table-hover table-striped">
                     <thead>
                         <tr>
+                            <th style="width: 40px;">
+                                <input type="checkbox" class="form-check-input" id="selectAllCb" onchange="toggleSelectAll()">
+                            </th>
                             <th>Study Description</th>
                             <th>Study Date</th>
                             <th>Accession #</th>
@@ -346,6 +354,9 @@ $clinicsStmt->close();
                         <?php foreach ($studies as $study): ?>
                             <tr>
                                 <td>
+                                    <input type="checkbox" class="form-check-input study-cb" value="<?= $study['orthanc_id'] ?>" onchange="updateMergeButton()">
+                                </td>
+                                <td>
                                     <?php if ($study['is_new']): ?>
                                         <span class="badge bg-danger me-2">NEW</span>
                                     <?php endif; ?>
@@ -353,6 +364,7 @@ $clinicsStmt->close();
                                     <?php if ($study['is_printed']): ?>
                                         <span class="badge bg-info ms-2"><i class="bi bi-printer-fill"></i> Printed</span>
                                     <?php endif; ?>
+                                    <div class="small text-muted mt-1">UID: <?= htmlspecialchars(substr($study['study_instance_uid'], 0, 20)) ?>...</div>
                                 </td>
                                 <td>
                                     <?= date('Y-m-d', strtotime($study['study_date'])) ?>
@@ -394,7 +406,7 @@ $clinicsStmt->close();
                                                 class="btn btn-sm btn-success"
                                                 onclick="exportToJPG('<?= $study['study_instance_uid'] ?>', '<?= addslashes($study['study_description']) ?>')"
                                                 title="Export all images as JPG">
-                                            <i class="bi bi-download"></i> Export JPG
+                                            <i class="bi bi-download"></i> JPA
                                         </button>
                                         <button type="button"
                                                 class="btn btn-sm btn-info"
@@ -491,6 +503,38 @@ $clinicsStmt->close();
 
         function viewStudy(orthancId) {
             window.location.href = '<?= BASE_PATH ?>/index.php?study_id=' + encodeURIComponent(orthancId);
+        }
+
+        // Merge Logic
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAllCb');
+            const checkboxes = document.querySelectorAll('.study-cb');
+            checkboxes.forEach(cb => cb.checked = selectAll.checked);
+            updateMergeButton();
+        }
+
+        function updateMergeButton() {
+            const checkboxes = document.querySelectorAll('.study-cb:checked');
+            const mergeBtn = document.getElementById('mergeBtn');
+            const count = checkboxes.length;
+            
+            mergeBtn.disabled = count < 2;
+            mergeBtn.innerHTML = count > 1 ? `<i class="bi bi-collection-play me-1"></i> Merge ${count} Studies` : '<i class="bi bi-collection-play me-1"></i> Merge Selected';
+        }
+
+        function mergeSelectedStudies() {
+            const checkboxes = document.querySelectorAll('.study-cb:checked');
+            if (checkboxes.length < 2) return;
+            
+            const ids = Array.from(checkboxes).map(cb => cb.value);
+            // Join IDs with comma
+            const mergedIds = ids.join(',');
+            
+            // Mark all as read
+            ids.forEach(id => markAsRead(id));
+            
+            // Navigate to viewer with multiple IDs
+            window.location.href = '<?= BASE_PATH ?>/index.php?study_id=' + encodeURIComponent(mergedIds);
         }
 
         async function showSendModal(orthancId, studyName) {

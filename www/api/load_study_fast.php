@@ -20,75 +20,100 @@ try {
         die(json_encode(['success' => false, 'error' => 'Unauthorized']));
     }
 
-    $studyUID = $_GET['studyUID'] ?? '';
-    $orthancId = $_GET['orthanc_id'] ?? '';
+    $studyUIDParam = $_GET['studyUID'] ?? '';
+    $orthancIdParam = $_GET['orthanc_id'] ?? '';
 
-    if (empty($studyUID) && empty($orthancId)) {
+    if (empty($studyUIDParam) && empty($orthancIdParam)) {
         ob_clean();
         http_response_code(400);
         die(json_encode(['success' => false, 'error' => 'Study UID required']));
     }
 
-    if (!empty($studyUID) && empty($orthancId)) {
-        $orthancId = $studyUID;
+    // Handle comma-separated list
+    $rawIds = !empty($studyUIDParam) ? $studyUIDParam : $orthancIdParam;
+    $idList = explode(',', $rawIds);
+    $idList = array_map('trim', $idList);
+    $idList = array_filter($idList); // remove empty
+
+    if (empty($idList)) {
+        ob_clean();
+        http_response_code(400);
+        die(json_encode(['success' => false, 'error' => 'No valid Study IDs provided']));
     }
+
+    $allImages = [];
+    $firstStudyInfo = null;
+    $combinedPatientName = '';
+    $mergedDescription = [];
 
     $mysqli = getDbConnection();
 
-    // Get study info from database
-    $stmt = $mysqli->prepare("
-        SELECT cs.orthanc_id, cs.study_instance_uid, cs.study_description,
-               cs.instance_count, cp.patient_name, cp.patient_id
-        FROM cached_studies cs
-        LEFT JOIN cached_patients cp ON cs.patient_id = cp.patient_id
-        WHERE cs.orthanc_id = ? OR cs.study_instance_uid = ?
-        LIMIT 1
-    ");
+    foreach ($idList as $currentId) {
+        // Get study info from database
+        $stmt = $mysqli->prepare("
+            SELECT cs.orthanc_id, cs.study_instance_uid, cs.study_description,
+                   cs.instance_count, cp.patient_name, cp.patient_id
+            FROM cached_studies cs
+            LEFT JOIN cached_patients cp ON cs.patient_id = cp.patient_id
+            WHERE cs.orthanc_id = ? OR cs.study_instance_uid = ?
+            LIMIT 1
+        ");
 
-    $stmt->bind_param('ss', $orthancId, $orthancId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $studyInfo = $result->fetch_assoc();
-    $stmt->close();
+        $stmt->bind_param('ss', $currentId, $currentId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $studyInfo = $result->fetch_assoc();
+        $stmt->close();
 
-    if (!$studyInfo) {
-        ob_clean();
-        http_response_code(404);
-        die(json_encode([
-            'success' => false,
-            'error' => 'Study not found',
-            'message' => 'Study not found in database'
-        ]));
+        if (!$studyInfo) {
+            continue; // Skip invalid IDs but try others
+        }
+
+        if (!$firstStudyInfo) {
+            $firstStudyInfo = $studyInfo;
+        }
+        
+        // Accumulate descriptions
+        if (!empty($studyInfo['study_description'])) {
+            $mergedDescription[] = $studyInfo['study_description'];
+        }
+
+        $orthancStudyId = $studyInfo['orthanc_id'];
+        
+        // Load instances from Orthanc
+        try {
+            $studyImages = loadFromOrthanc($orthancStudyId, $studyInfo);
+            $allImages = array_merge($allImages, $studyImages);
+        } catch (Exception $e) {
+            error_log("Failed to load study $currentId: " . $e->getMessage());
+        }
     }
 
-    $orthancStudyId = $studyInfo['orthanc_id'];
-    $actualStudyUID = $studyInfo['study_instance_uid'];
-
-    // Load instances from Orthanc
-    $images = loadFromOrthanc($orthancStudyId, $studyInfo);
-
-    if (empty($images)) {
+    if (empty($allImages)) {
         ob_clean();
         http_response_code(404);
         echo json_encode([
             'success' => false,
             'error' => 'No DICOM files found',
-            'message' => 'No instances found',
-            'studyId' => $orthancStudyId
+            'message' => 'No instances found for provided IDs',
+            'studyId' => $rawIds
         ]);
         exit;
     }
 
+    // Create a merged response
     $response = [
         'success' => true,
-        'studyUID' => $actualStudyUID,
-        'orthancId' => $orthancStudyId,
-        'studyDescription' => $studyInfo['study_description'],
-        'patientName' => $studyInfo['patient_name'],
-        'images' => $images,
-        'totalImages' => count($images),
-        'imageCount' => count($images),
-        'source' => 'orthanc_direct'
+        // Use the first study's UID/ID as primary reference, or a combined string
+        'studyUID' => $firstStudyInfo['study_instance_uid'], 
+        'orthancId' => $firstStudyInfo['orthanc_id'],
+        'studyDescription' => !empty($mergedDescription) ? implode(' + ', array_unique($mergedDescription)) : 'Merged Study',
+        'patientName' => $firstStudyInfo['patient_name'],
+        'images' => $allImages,
+        'totalImages' => count($allImages),
+        'imageCount' => count($allImages),
+        'source' => 'orthanc_direct',
+        'isMerged' => count($idList) > 1
     ];
 
     ob_clean();
@@ -142,6 +167,7 @@ function loadFromOrthanc($orthancStudyId, $studyInfo) {
                             'seriesDescription' => $seriesDesc,
                             'seriesNumber' => intval($seriesNumber),
                             'patientName' => $studyInfo['patient_name'],
+                            'studyInstanceUID' => $studyInfo['study_instance_uid'], // Explicitly add StudyUID
                             'useApiGateway' => false,
                             'isOrthancImage' => true
                         ];
@@ -151,6 +177,7 @@ function loadFromOrthanc($orthancStudyId, $studyInfo) {
         }
     }
 
+    // Sort valid for single study, but for merged, might want to resort by study then series
     usort($images, function($a, $b) {
         $seriesCompare = $a['seriesNumber'] - $b['seriesNumber'];
         if ($seriesCompare !== 0) return $seriesCompare;

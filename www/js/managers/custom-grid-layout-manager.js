@@ -321,23 +321,32 @@ window.DICOM_VIEWER.CustomGridLayoutManager = class {
         // Apply grid template as fallback
         container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
         container.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-        container.style.gap = '2px';
+        // Increased gap for proper pacing as requested
+        container.style.gap = '5px';
+        container.style.padding = '5px';
 
-        // Portrait layout detection: more rows than columns = portrait
-        // For portrait layouts, constrain the width to give each viewport a portrait aspect ratio
-        const isPortraitLayout = rows > cols;
-        if (isPortraitLayout) {
-            // Calculate appropriate width based on number of columns
-            // Fewer columns = narrower container
-            const widthPercent = Math.min(80, 25 * cols); // 25% per column, max 80%
-            container.style.maxWidth = `${widthPercent}%`;
-            container.style.margin = '0 auto'; // Center the container
+        // FORCE PORTRAIT for all custom layouts based on user request
+        // "in advanced layouts, i want all the layout to be in only portrait"
+        const isAdvancedLayout = true; // Always force for custom grids
+
+        if (isAdvancedLayout) {
+            // "covers the entire middle sections" -> Use full width/height
+            container.style.width = '100%';
+            container.style.height = '100%';
+            container.style.maxWidth = '100%';
+            container.style.margin = '0';
+
+            // Retain these classes for Print Manager detection
             container.classList.add('portrait-layout');
+            container.classList.add('advanced-grid-layout');
         } else {
             // Landscape or square layout - use full width
+            container.style.width = '';
+            container.style.height = '';
             container.style.maxWidth = '';
             container.style.margin = '';
             container.classList.remove('portrait-layout');
+            container.classList.remove('advanced-grid-layout');
         }
 
         // Update dropdown text if it exists

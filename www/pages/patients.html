@@ -305,6 +305,72 @@
         .patients-table tbody tr:nth-child(even) {
             animation-delay: 0.1s;
         }
+
+        /* Grid View Styles */
+        .patients-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            padding: 10px 0;
+        }
+
+        .patient-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 15px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+        }
+
+        .patient-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary-color);
+            box-shadow: 0 10px 30px rgba(13, 110, 253, 0.2);
+        }
+
+        .patient-avatar-lg {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 15px;
+        }
+
+        .patient-card-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+
+        .patient-card-id {
+            color: #adb5bd;
+            font-size: 0.85rem;
+            margin-bottom: 15px;
+        }
+
+        .patient-card-stats {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .patient-card-stat {
+            background: rgba(13, 110, 253, 0.1);
+            border: 1px solid rgba(13, 110, 253, 0.2);
+            padding: 5px 10px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: #6ea8fe;
+        }
     </style>
 </head>
 
@@ -345,9 +411,35 @@
                 <i class="bi bi-people-fill text-primary"></i>
                 Patient List
             </h2>
-            <button class="btn btn-primary" id="refreshBtn">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
+            <div class="d-flex gap-2 align-items-center">
+                <!-- View Toggle -->
+                <div class="btn-group" role="group" aria-label="View toggle">
+                    <button type="button" class="btn btn-outline-primary" id="gridViewBtn" title="Grid View">
+                        <i class="bi bi-grid-3x3-gap-fill"></i>
+                    </button>
+                    <button type="button" class="btn btn-primary" id="listViewBtn" title="List View">
+                        <i class="bi bi-list-ul"></i>
+                    </button>
+                </div>
+
+                <!-- Sort Dropdown -->
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="sortDropdown"
+                        data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-sort-down"></i> Sort By
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark" aria-labelledby="sortDropdown">
+                        <li><a class="dropdown-item active" href="#" data-sort="recent">Recent Study</a></li>
+                        <li><a class="dropdown-item" href="#" data-sort="name">Patient Name</a></li>
+                        <li><a class="dropdown-item" href="#" data-sort="id">Patient ID</a></li>
+                        <li><a class="dropdown-item" href="#" data-sort="studies">Study Count</a></li>
+                    </ul>
+                </div>
+
+                <button class="btn btn-primary" id="refreshBtn">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
         </div>
 
         <!-- Search Section -->
@@ -399,6 +491,8 @@
         let currentFilters = {};
         let searchTimeout = null;
         let allPatients = [];
+        let viewMode = localStorage.getItem('patientsViewMode') || 'list'; // 'grid' or 'list'
+        let sortBy = localStorage.getItem('patientsSortBy') || 'recent'; // 'recent', 'name', 'id', 'studies'
 
         // Check authentication on load
         window.addEventListener('DOMContentLoaded', async () => {
@@ -443,6 +537,57 @@
                     window.location.href = '../login.php';
                 }
             });
+
+            // View Toggle - Grid
+            document.getElementById('gridViewBtn').addEventListener('click', () => {
+                viewMode = 'grid';
+                localStorage.setItem('patientsViewMode', 'grid');
+                updateViewButtons();
+                filterAndDisplayPatients();
+            });
+
+            // View Toggle - List
+            document.getElementById('listViewBtn').addEventListener('click', () => {
+                viewMode = 'list';
+                localStorage.setItem('patientsViewMode', 'list');
+                updateViewButtons();
+                filterAndDisplayPatients();
+            });
+
+            // Sort Dropdown
+            document.querySelectorAll('[data-sort]').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    sortBy = e.target.dataset.sort;
+                    localStorage.setItem('patientsSortBy', sortBy);
+
+                    // Update dropdown UI
+                    document.querySelectorAll('[data-sort]').forEach(i => i.classList.remove('active'));
+                    e.target.classList.add('active');
+
+                    filterAndDisplayPatients();
+                });
+            });
+
+            // Initialize view buttons state
+            updateViewButtons();
+        }
+
+        function updateViewButtons() {
+            const gridBtn = document.getElementById('gridViewBtn');
+            const listBtn = document.getElementById('listViewBtn');
+
+            if (viewMode === 'grid') {
+                gridBtn.classList.remove('btn-outline-primary');
+                gridBtn.classList.add('btn-primary');
+                listBtn.classList.remove('btn-primary');
+                listBtn.classList.add('btn-outline-primary');
+            } else {
+                listBtn.classList.remove('btn-outline-primary');
+                listBtn.classList.add('btn-primary');
+                gridBtn.classList.remove('btn-primary');
+                gridBtn.classList.add('btn-outline-primary');
+            }
         }
 
         async function checkAuth() {
@@ -532,6 +677,24 @@
                 );
             }
 
+            // Apply sorting
+            filtered = [...filtered].sort((a, b) => {
+                switch (sortBy) {
+                    case 'name':
+                        return (a.patient_name || '').localeCompare(b.patient_name || '');
+                    case 'id':
+                        return (a.patient_id || '').localeCompare(b.patient_id || '');
+                    case 'studies':
+                        return (b.study_count || 0) - (a.study_count || 0);
+                    case 'recent':
+                    default:
+                        // Sort by latest study date (most recent first)
+                        const dateA = a.latest_study_date || a.last_study_date || '0000-00-00';
+                        const dateB = b.latest_study_date || b.last_study_date || '0000-00-00';
+                        return dateB.localeCompare(dateA);
+                }
+            });
+
             renderPatients(filtered);
             updateStats(filtered.length);
         }
@@ -552,27 +715,71 @@
                 return;
             }
 
-            // Create table
-            const tableHtml = `
-                <div class="patients-table-container">
-                    <table class="patients-table">
-                        <thead>
-                            <tr>
-                                <th>Patient</th>
-                                <th>Patient ID</th>
-                                <th>Gender</th>
-                                <th>Age</th>
-                                <th>Studies</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${patients.map(patient => createPatientRow(patient)).join('')}
-                        </tbody>
-                    </table>
+            if (viewMode === 'grid') {
+                // Grid View
+                const gridHtml = `
+                    <div class="patients-grid">
+                        ${patients.map(patient => createPatientCard(patient)).join('')}
+                    </div>
+                `;
+                container.innerHTML = gridHtml;
+            } else {
+                // List/Table View
+                const tableHtml = `
+                    <div class="patients-table-container">
+                        <table class="patients-table">
+                            <thead>
+                                <tr>
+                                    <th>Patient</th>
+                                    <th>Patient ID</th>
+                                    <th>Gender</th>
+                                    <th>Age</th>
+                                    <th>Studies</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${patients.map(patient => createPatientRow(patient)).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                container.innerHTML = tableHtml;
+            }
+        }
+
+        function createPatientCard(patient) {
+            const initials = getInitials(patient.patient_name);
+            const sex = patient.patient_sex || patient.sex || '';
+            const gender = sex === 'M' ? 'Male' : sex === 'F' ? 'Female' : 'N/A';
+
+            // Calculate age
+            let ageDisplay = 'N/A';
+            if (patient.age !== null && patient.age !== undefined) {
+                ageDisplay = patient.age + ' yrs';
+            } else if (patient.birth_date) {
+                const birthDate = patient.birth_date.length === 8
+                    ? new Date(patient.birth_date.substr(0, 4), parseInt(patient.birth_date.substr(4, 2)) - 1, patient.birth_date.substr(6, 2))
+                    : new Date(patient.birth_date);
+                if (!isNaN(birthDate.getTime())) {
+                    const ageDiff = Date.now() - birthDate.getTime();
+                    const ageDate = new Date(ageDiff);
+                    const calculatedAge = Math.abs(ageDate.getUTCFullYear() - 1970);
+                    ageDisplay = calculatedAge + ' yrs';
+                }
+            }
+
+            return `
+                <div class="patient-card" onclick="viewPatientStudies('${patient.patient_id}')">
+                    <div class="patient-avatar-lg">${initials}</div>
+                    <div class="patient-card-name">${patient.patient_name || 'Unknown'}</div>
+                    <div class="patient-card-id">${patient.patient_id || 'N/A'}</div>
+                    <div class="patient-card-stats">
+                        <span class="patient-card-stat"><i class="bi bi-gender-ambiguous"></i> ${gender}</span>
+                        <span class="patient-card-stat"><i class="bi bi-calendar-heart"></i> ${ageDisplay}</span>
+                        <span class="patient-card-stat"><i class="bi bi-folder"></i> ${patient.study_count || 0} Studies</span>
+                    </div>
                 </div>
             `;
-
-            container.innerHTML = tableHtml;
         }
 
         function createPatientRow(patient) {

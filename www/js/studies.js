@@ -109,6 +109,9 @@ function displayStudies(studies) {
             <table class="studies-table">
                 <thead>
                     <tr>
+                        <th style="width: 50px; text-align: center;">
+                            <input type="checkbox" id="selectAllStudies" onchange="toggleSelectAll()" title="Select All" style="transform: scale(1.3); cursor: pointer;">
+                        </th>
                         <th>Study Description</th>
                         <th>Accession #</th>
                         <th>Study Date</th>
@@ -165,6 +168,9 @@ function createStudyTableRow(study) {
 
     return `
         <tr id="study-${studyUID}">
+            <td style="text-align: center;">
+                <input type="checkbox" class="study-checkbox" data-orthanc-id="${orthancId}" data-study-uid="${studyUID}" onchange="updateMergeButton()" style="transform: scale(1.3); cursor: pointer;">
+            </td>
             <td>
                 <strong>${studyDesc}</strong>
                 ${studyIdDisplay ? `<br><small style="color: var(--text-secondary);">ID: ${escapeHtml(studyIdDisplay)}</small>` : ''}
@@ -958,4 +964,72 @@ async function removePrescriptionAttachment() {
     } catch (error) {
         alert('Error: ' + error.message);
     }
+}
+
+// ========== MERGE STUDIES FUNCTIONS ==========
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAllStudies');
+    const checkboxes = document.querySelectorAll('.study-checkbox');
+
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+    });
+
+    updateMergeButton();
+}
+
+function updateMergeButton() {
+    const checkboxes = document.querySelectorAll('.study-checkbox:checked');
+    const count = checkboxes.length;
+    const btn = document.getElementById('mergeStudiesBtn');
+    const countSpan = document.getElementById('selectedCount');
+
+    if (countSpan) {
+        countSpan.textContent = count;
+    }
+
+    if (btn) {
+        btn.disabled = count < 2;
+        if (count >= 2) {
+            btn.title = `Merge ${count} selected studies`;
+        } else {
+            btn.title = 'Select at least 2 studies to merge';
+        }
+    }
+
+    // Update Select All checkbox state
+    const allCheckboxes = document.querySelectorAll('.study-checkbox');
+    const selectAllCb = document.getElementById('selectAllStudies');
+    if (selectAllCb && allCheckboxes.length > 0) {
+        selectAllCb.checked = count === allCheckboxes.length;
+        selectAllCb.indeterminate = count > 0 && count < allCheckboxes.length;
+    }
+}
+
+function mergeSelectedStudies() {
+    const checkboxes = document.querySelectorAll('.study-checkbox:checked');
+
+    if (checkboxes.length < 2) {
+        alert('Please select at least 2 studies to merge.');
+        return;
+    }
+
+    // Collect orthanc_ids
+    const orthancIds = [];
+    checkboxes.forEach(cb => {
+        const orthancId = cb.dataset.orthancId;
+        if (orthancId && orthancId !== 'null' && orthancId !== 'undefined') {
+            orthancIds.push(orthancId);
+        }
+    });
+
+    if (orthancIds.length < 2) {
+        alert('Not enough valid studies selected. Please ensure studies have valid Orthanc IDs.');
+        return;
+    }
+
+    // Open viewer with comma-separated study IDs
+    const mergedIds = orthancIds.join(',');
+    window.open(`../index.php?study_id=${encodeURIComponent(mergedIds)}`, '_blank');
 }

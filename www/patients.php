@@ -209,6 +209,7 @@ $stmt->close();
             z-index: 10;
         }
         
+        /* Grid View Styles */
         .patient-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -292,6 +293,48 @@ $stmt->close();
             font-size: 0.75rem;
             font-weight: 500;
         }
+
+        /* List View (Table) Styles */
+        .patient-table-container {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 15px;
+            overflow: hidden;
+            margin-top: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .table-custom {
+            width: 100%;
+            margin-bottom: 0;
+            color: #fff;
+        }
+
+        .table-custom th {
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--card-border);
+            padding: 15px 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #adb5bd;
+        }
+
+        .table-custom td {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--card-border);
+            vertical-align: middle;
+        }
+
+        .table-custom tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-custom tr:hover td {
+            background: var(--hover-bg);
+            cursor: pointer;
+        }
         
         .filter-toggle {
             background: rgba(255, 255, 255, 0.05);
@@ -341,6 +384,19 @@ $stmt->close();
             align-items: center;
         }
         
+        /* View Switcher */
+        .view-switcher .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--card-border);
+            color: #adb5bd;
+        }
+        
+        .view-switcher .btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
         @media (max-width: 768px) {
             .patient-grid {
                 grid-template-columns: 1fr;
@@ -407,52 +463,70 @@ $stmt->close();
                 <i class="bi bi-people-fill text-primary"></i>
                 Patient List
             </h2>
-            <button class="btn btn-primary" onclick="window.location.reload()">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
+            <div class="d-flex gap-2">
+                <div class="btn-group view-switcher" role="group">
+                    <button type="button" class="btn btn-outline-secondary" id="gridViewBtn" title="Grid View">
+                        <i class="bi bi-grid-fill"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="listViewBtn" title="List View">
+                        <i class="bi bi-list-ul"></i>
+                    </button>
+                </div>
+                <button class="btn btn-primary" onclick="window.location.reload()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
         </div>
 
         <!-- Search Section -->
         <div class="search-section">
             <form method="GET" action="">
-                <div class="row align-items-end g-3">
-                    <div class="col-md-4">
-                        <label class="form-label text-light mb-2">
-                            <i class="bi bi-search"></i> Quick Search
-                        </label>
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label text-light mb-2">Search</label>
                         <div class="search-wrapper">
                             <i class="bi bi-search search-icon"></i>
                             <input type="text" name="search" class="form-control search-input"
                                    placeholder="Search by patient name or ID..."
-                                   value="<?= htmlspecialchars($searchQuery) ?>" autofocus>
+                                   value="<?= htmlspecialchars($searchQuery) ?>">
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label text-light mb-2">From Date</label>
+                    <div class="col-md-2">
+                        <label class="form-label text-light mb-2">Sort By</label>
+                        <select name="sort" class="form-select bg-dark text-white border-secondary">
+                            <option value="latest_study_date" <?= $sortBy === 'latest_study_date' ? 'selected' : '' ?>>Recent Study</option>
+                            <option value="patient_name" <?= $sortBy === 'patient_name' ? 'selected' : '' ?>>Name</option>
+                            <option value="patient_id" <?= $sortBy === 'patient_id' ? 'selected' : '' ?>>ID</option>
+                            <option value="birth_date" <?= $sortBy === 'birth_date' ? 'selected' : '' ?>>Date of Birth</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label text-light mb-2">From</label>
                         <input type="date" name="start_date" class="form-control bg-dark text-white border-secondary" 
                                value="<?= htmlspecialchars($startDate) ?>">
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label text-light mb-2">To Date</label>
+                    <div class="col-md-2">
+                        <label class="form-label text-light mb-2">To</label>
                         <input type="date" name="end_date" class="form-control bg-dark text-white border-secondary" 
                                value="<?= htmlspecialchars($endDate) ?>">
                     </div>
-                    
-                    <div class="col-md-2 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary flex-fill">
-                            <i class="bi bi-filter"></i> Filter
+                    <div class="col-md-1">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-filter"></i>
                         </button>
-                        <?php if ($searchQuery || $startDate || $endDate): ?>
-                        <a href="<?= BASE_PATH ?>/patients.php" class="btn btn-secondary" title="Clear Filters">
-                            <i class="bi bi-x-lg"></i>
-                        </a>
-                        <?php endif; ?>
                     </div>
                 </div>
             </form>
+            <?php if ($searchQuery || $startDate || $endDate): ?>
+            <div class="mt-2 text-end">
+                <a href="<?= BASE_PATH ?>/patients.php" class="text-secondary small text-decoration-none">
+                    <i class="bi bi-x-circle"></i> Clear filters
+                </a>
+            </div>
+            <?php endif; ?>
         </div>
 
-        <!-- Patient Grid -->
+        <!-- Patient Content -->
         <?php if (empty($patients)): ?>
             <div class="empty-state">
                 <i class="bi bi-inbox"></i>
@@ -466,7 +540,8 @@ $stmt->close();
                 </p>
             </div>
         <?php else: ?>
-            <div class="patient-grid">
+            <!-- Grid View -->
+            <div id="patientGridView" class="patient-grid">
                 <?php foreach ($patients as $patient): 
                     $initials = '';
                     $nameParts = explode('^', str_replace('_', ' ', $patient['patient_name']));
@@ -520,6 +595,60 @@ $stmt->close();
                     </div>
                 <?php endforeach; ?>
             </div>
+
+            <!-- List View (Hidden by default) -->
+            <div id="patientListView" class="patient-table-container" style="display: none;">
+                <table class="table table-custom table-hover">
+                    <thead>
+                        <tr>
+                            <th>Patient Name</th>
+                            <th>Patient ID</th>
+                            <th>Date of Birth</th>
+                            <th>Sex</th>
+                            <th>Last Study Date</th>
+                            <th>Status</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($patients as $patient): ?>
+                        <tr onclick="window.location.href='<?= BASE_PATH ?>/patient-studies.php?patient_id=<?= urlencode($patient['orthanc_id']) ?>'">
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="rounded-circle bg-primary d-flex align-items-center justify-content-center text-white" style="width: 30px; height: 30px; font-size: 0.8rem;">
+                                        <?= substr($patient['patient_name'], 0, 1) ?>
+                                    </div>
+                                    <span class="fw-semibold"><?= htmlspecialchars($patient['patient_name']) ?></span>
+                                </div>
+                            </td>
+                            <td><?= htmlspecialchars($patient['patient_id']) ?></td>
+                            <td><?= $patient['birth_date'] ? htmlspecialchars($patient['birth_date']) : '-' ?></td>
+                            <td><?= htmlspecialchars($patient['sex'] ?? '-') ?></td>
+                            <td>
+                                <?php if ($patient['latest_study_datetime']): ?>
+                                    <div class="d-flex align-items-center gap-1 text-info">
+                                        <i class="bi bi-calendar-check"></i>
+                                        <?= date('M d, Y', strtotime($patient['latest_study_datetime'])) ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span class="text-muted">-</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($patient['new_studies_count'] > 0): ?>
+                                    <span class="badge bg-danger rounded-pill"><?= $patient['new_studies_count'] ?> New Studies</span>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary rounded-pill">Viewed</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary">View</button>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
             
             <!-- Stats Bar -->
             <div class="stats-bar">
@@ -536,6 +665,39 @@ $stmt->close();
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // View Toggle Logic
+        document.addEventListener('DOMContentLoaded', () => {
+            const gridViewBtn = document.getElementById('gridViewBtn');
+            const listViewBtn = document.getElementById('listViewBtn');
+            const gridView = document.getElementById('patientGridView');
+            const listView = document.getElementById('patientListView');
+            
+            // Check localStorage
+            const currentView = localStorage.getItem('patientsViewMode') || 'grid';
+            
+            function setView(mode) {
+                if (mode === 'grid') {
+                    gridView.style.display = 'grid';
+                    listView.style.display = 'none';
+                    gridViewBtn.classList.add('active');
+                    listViewBtn.classList.remove('active');
+                } else {
+                    gridView.style.display = 'none';
+                    listView.style.display = 'block';
+                    gridViewBtn.classList.remove('active');
+                    listViewBtn.classList.add('active');
+                }
+                localStorage.setItem('patientsViewMode', mode);
+            }
+            
+            // Initialize
+            setView(currentView);
+            
+            // Event listeners
+            gridViewBtn.addEventListener('click', () => setView('grid'));
+            listViewBtn.addEventListener('click', () => setView('list'));
+        });
+
         // Auto-refresh logic
         let lastStudyCount = -1;
         let lastImportId = -1;
