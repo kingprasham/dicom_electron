@@ -17,6 +17,14 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         this.pageNavigatorUI = null;
         this.showImageNumbers = false; // Disabled by default for cleaner viewing
 
+        // STATE PERSISTENCE: Track viewport->image mappings per page
+        // Key: page number, Value: Array of image indices (or null for empty slots)
+        // This allows manual image placements to persist across page switches
+        this.pageViewportStates = new Map();
+
+        // Track if state has been modified from default
+        this.stateModified = false;
+
         this.init();
     }
 
@@ -109,6 +117,9 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
             // Delay to let viewports be created first (300ms for reliability)
             setTimeout(() => {
+                // CLEAR saved states when layout changes - viewport slots change meaning
+                this.clearSavedStates();
+
                 // Recalculate pages based on new layout
                 this.calculatePages();
 
@@ -304,14 +315,144 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
     /**
      * Go to specific page
+     * STATE PERSISTENCE: Saves current viewport state before switching pages
      */
     async goToPage(pageNum) {
         if (pageNum < 1 || pageNum > this.totalPages) return;
         if (pageNum === this.currentPage) return;
 
+        // SAVE current viewport state before switching
+        this.saveCurrentPageState();
+
+        const previousPage = this.currentPage;
         this.currentPage = pageNum;
+
+        console.log(`[PageNavigator] Switching from page ${previousPage} to page ${pageNum}`);
+
         await this.loadCurrentPageImages();
         this.updatePageIndicator();
+    }
+
+    /**
+     * STATE PERSISTENCE: Save the current viewport configuration for the current page
+     * Captures which image (by global index) is in each viewport slot
+     */
+    saveCurrentPageState() {
+        const viewports = document.querySelectorAll('.viewport');
+        const state = window.DICOM_VIEWER.STATE;
+        const images = state.currentSeriesImages || [];
+
+        if (viewports.length === 0 || images.length === 0) return;
+
+        const pageState = [];
+
+        viewports.forEach((viewport, slotIndex) => {
+            try {
+                const enabledElement = cornerstone.getEnabledElement(viewport);
+                if (enabledElement && enabledElement.image) {
+                    const imageId = enabledElement.image.imageId;
+
+                    // Find which image index this corresponds to
+                    const imageIndex = this.findImageIndexByImageId(imageId, images);
+                    pageState.push(imageIndex); // Will be -1 if not found, which means keep as-is
+
+                    console.log(`[SaveState] Viewport ${slotIndex + 1}: Image index ${imageIndex}`);
+                } else {
+                    // Empty viewport
+                    pageState.push(null);
+                    console.log(`[SaveState] Viewport ${slotIndex + 1}: Empty`);
+                }
+            } catch (e) {
+                // Viewport not enabled
+                pageState.push(null);
+            }
+        });
+
+        this.pageViewportStates.set(this.currentPage, pageState);
+        console.log(`[SaveState] Saved state for page ${this.currentPage}:`, pageState);
+    }
+
+    /**
+     * Find the global image index from an imageId
+     */
+    findImageIndexByImageId(imageId, images) {
+        for (let i = 0; i < images.length; i++) {
+            const img = images[i];
+
+            // Check various ID formats
+            if (img.imageId && imageId.includes(img.imageId)) return i;
+            if (img.image_id && imageId.includes(img.image_id)) return i;
+            if (img.orthancInstanceId && imageId.includes(img.orthancInstanceId)) return i;
+            if (img.instanceId && imageId.includes(img.instanceId)) return i;
+            if (img.id && imageId.includes(img.id)) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * STATE PERSISTENCE: Get the saved state for a page, or return default order
+     * Returns array of image indices for each viewport slot
+     */
+    getPageState(pageNum) {
+        if (this.pageViewportStates.has(pageNum)) {
+            console.log(`[GetState] Found saved state for page ${pageNum}`);
+            return this.pageViewportStates.get(pageNum);
+        }
+        return null; // No saved state, use default
+    }
+
+    /**
+     * STATE PERSISTENCE: Record a manual image placement
+     * Called when user drops an image into a viewport
+     */
+    recordManualPlacement(viewportSlotIndex, imageIndex) {
+        // Get or create state for current page
+        let pageState = this.pageViewportStates.get(this.currentPage);
+        if (!pageState) {
+            // Initialize with current default
+            pageState = this.getDefaultPageState();
+        }
+
+        // Update the specific slot
+        pageState[viewportSlotIndex] = imageIndex;
+        this.pageViewportStates.set(this.currentPage, pageState);
+        this.stateModified = true;
+
+        console.log(`[ManualPlacement] Viewport ${viewportSlotIndex + 1} now has image ${imageIndex + 1}`);
+        console.log(`[ManualPlacement] Page ${this.currentPage} state:`, pageState);
+    }
+
+    /**
+     * Get the default viewport state for the current page (based on sequential order)
+     */
+    getDefaultPageState() {
+        const viewports = document.querySelectorAll('.viewport');
+        const state = window.DICOM_VIEWER.STATE;
+        const images = state.currentSeriesImages || [];
+
+        const startIndex = (this.currentPage - 1) * this.imagesPerPage;
+        const pageState = [];
+
+        for (let i = 0; i < viewports.length; i++) {
+            const globalIndex = startIndex + i;
+            if (globalIndex < images.length) {
+                pageState.push(globalIndex);
+            } else {
+                pageState.push(null);
+            }
+        }
+
+        return pageState;
+    }
+
+    /**
+     * STATE PERSISTENCE: Clear all saved viewport states
+     * Called when layout changes or a new study is loaded
+     */
+    clearSavedStates() {
+        this.pageViewportStates.clear();
+        this.stateModified = false;
+        console.log('[PageNavigator] Cleared all saved viewport states');
     }
 
     /**
@@ -330,7 +471,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
     /**
      * Load images for current page into viewports
-     * FIXED: Better handling for empty viewports to ensure drag-drop works
+     * STATE PERSISTENCE: Uses saved state if available, otherwise uses default order
      */
     async loadCurrentPageImages() {
         const state = window.DICOM_VIEWER.STATE;
@@ -339,27 +480,59 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
         if (images.length === 0 || viewports.length === 0) return;
 
+        // Check for saved state for this page
+        const savedState = this.getPageState(this.currentPage);
+
+        // Calculate default indices
         const startIndex = (this.currentPage - 1) * this.imagesPerPage;
         const endIndex = Math.min(startIndex + this.imagesPerPage, images.length);
-        const pageImages = images.slice(startIndex, endIndex);
 
-        console.log(`Loading page ${this.currentPage}: images ${startIndex + 1} to ${endIndex}`);
+        if (savedState) {
+            console.log(`[LoadPage] Using SAVED state for page ${this.currentPage}:`, savedState);
+        } else {
+            console.log(`[LoadPage] Using DEFAULT order for page ${this.currentPage}: images ${startIndex + 1} to ${endIndex}`);
+        }
 
         // Load images into viewports
         for (let i = 0; i < viewports.length; i++) {
             const viewport = viewports[i];
-            const image = pageImages[i];
-            const globalImageNumber = startIndex + i + 1;
 
-            // Update viewport label to show global image number
-            this.updateViewportLabel(viewport, image ? globalImageNumber : null, i + 1);
+            // Determine which image to load in this slot
+            let imageIndex;
+            let image;
+            let globalImageNumber;
+
+            if (savedState && savedState[i] !== undefined) {
+                // Use saved state
+                imageIndex = savedState[i];
+                if (imageIndex !== null && imageIndex >= 0 && imageIndex < images.length) {
+                    image = images[imageIndex];
+                    globalImageNumber = imageIndex + 1;
+                } else {
+                    image = null;
+                    globalImageNumber = null;
+                }
+            } else {
+                // Use default sequential order
+                imageIndex = startIndex + i;
+                if (imageIndex < images.length) {
+                    image = images[imageIndex];
+                    globalImageNumber = imageIndex + 1;
+                } else {
+                    image = null;
+                    globalImageNumber = null;
+                }
+            }
+
+            // Update viewport label
+            this.updateViewportLabel(viewport, globalImageNumber, i + 1);
 
             if (image) {
                 try {
                     // Remove empty viewport indicator if present
                     const emptyIndicator = viewport.querySelector('.empty-viewport-indicator');
                     if (emptyIndicator) emptyIndicator.remove();
-                    
+
                     // Clear isEmpty flag
                     viewport.dataset.isEmpty = 'false';
 
@@ -387,28 +560,27 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                         if (window.DICOM_VIEWER.MANAGERS?.textAnnotationTool) {
                             window.DICOM_VIEWER.MANAGERS.textAnnotationTool.restoreAnnotationsForViewport(viewport);
                         }
+
+                        console.log(`[LoadPage] Viewport ${i + 1}: Loaded image ${globalImageNumber}`);
                     }
                 } catch (err) {
-                    console.error(`Error loading image ${startIndex + i}:`, err);
-                    this.showErrorInViewport(viewport, globalImageNumber);
+                    console.error(`Error loading image ${imageIndex}:`, err);
+                    this.showErrorInViewport(viewport, globalImageNumber || i + 1);
                 }
             } else {
                 // Clear viewport if no image for this slot
-                // This will also ensure the viewport is properly enabled for drag-drop
+                console.log(`[LoadPage] Viewport ${i + 1}: Empty`);
                 this.clearViewport(viewport);
             }
         }
-        
+
         // CRITICAL: After loading/clearing viewports, ensure all drop handlers are set up
-        // This catches any viewports that may have been missed during initial setup
         setTimeout(() => {
             const eventHandlers = window.DICOM_VIEWER?.EventHandlers;
             if (eventHandlers) {
                 viewports.forEach(viewport => {
-                    // Re-verify drop handlers are working
                     if (!viewport.dataset.dropConfigured) {
                         eventHandlers.setupSingleViewport(viewport);
-                        console.log('Set up drop handler for viewport after page load');
                     }
                 });
             }
@@ -417,7 +589,11 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         // Update image counter in sidebar
         const imageCounter = document.getElementById('imageCounter');
         if (imageCounter) {
-            imageCounter.textContent = `Page ${this.currentPage}/${this.totalPages} (${startIndex + 1}-${endIndex} of ${images.length})`;
+            if (savedState) {
+                imageCounter.textContent = `Page ${this.currentPage}/${this.totalPages} (Custom arrangement)`;
+            } else {
+                imageCounter.textContent = `Page ${this.currentPage}/${this.totalPages} (${startIndex + 1}-${endIndex} of ${images.length})`;
+            }
         }
     }
 
@@ -563,7 +739,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         } catch (e) {
             // Viewport not enabled by cornerstone - need to enable it
             needsReEnable = true;
-            
+
             // Clear any existing canvas
             const canvases = viewport.querySelectorAll('canvas');
             canvases.forEach(canvas => {

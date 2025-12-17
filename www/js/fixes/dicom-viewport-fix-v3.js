@@ -219,6 +219,13 @@
                 // Update badge
                 updateViewportBadgeOnThumbnail(imageInfo.id, viewportNum);
 
+                // STATE PERSISTENCE: Record this manual placement
+                const pageNavigator = window.DICOM_VIEWER.MANAGERS?.pageNavigator;
+                if (pageNavigator && pageNavigator.recordManualPlacement) {
+                    pageNavigator.recordManualPlacement(viewportNum - 1, imageIndex);
+                    log(`📌 Manual placement recorded: Viewport ${viewportNum} -> Image ${imageIndex + 1}`);
+                }
+
                 viewport.classList.add('drop-success');
                 setTimeout(() => viewport.classList.remove('drop-success'), 500);
 
