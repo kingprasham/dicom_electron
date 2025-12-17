@@ -6,12 +6,18 @@
  * All images from merged studies are combined, and original studies are deleted.
  */
 
-header('Content-Type: application/json');
-session_start();
+// Suppress HTML errors, output only JSON
+ini_set('display_errors', 0);
+error_reporting(0);
 
-// Include database and Orthanc helpers
-require_once __DIR__ . '/../../includes/db.php';
-require_once __DIR__ . '/../../includes/orthanc.php';
+header('Content-Type: application/json');
+
+define('DICOM_VIEWER', true);
+
+// Include config (contains getDbConnection for mysqli)
+require_once __DIR__ . '/../../includes/config.php';
+
+session_start();
 
 // Only accept POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -35,17 +41,29 @@ if (count($studyUIDs) < 2) {
 }
 
 try {
-    $pdo = getDbConnection();
-    $pdo->beginTransaction();
+    $mysqli = getDbConnection();
     
-    // Fetch all studies to be merged
+    // Start transaction
+    $mysqli->autocommit(false);
+    
+    // Build placeholders for IN clause
     $placeholders = implode(',', array_fill(0, count($studyUIDs), '?'));
-    $stmt = $pdo->prepare("SELECT * FROM cached_studies WHERE study_instance_uid IN ($placeholders) ORDER BY study_date DESC, study_time DESC");
-    $stmt->execute($studyUIDs);
-    $studies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $types = str_repeat('s', count($studyUIDs));
+    
+    // Fetch all studies to be merged (ORDER BY study_date DESC to get latest first)
+    $stmt = $mysqli->prepare("SELECT * FROM cached_studies WHERE study_instance_uid IN ($placeholders) ORDER BY study_date DESC, study_time DESC");
+    $stmt->bind_param($types, ...$studyUIDs);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $studies = [];
+    while ($row = $result->fetch_assoc()) {
+        $studies[] = $row;
+    }
+    $stmt->close();
     
     if (count($studies) < 2) {
-        throw new Exception('Could not find enough studies to merge');
+        throw new Exception('Could not find enough studies to merge. Found: ' . count($studies));
     }
     
     // Use the LATEST study as the base (first in array due to ORDER BY DESC)
@@ -65,49 +83,55 @@ try {
     // Update the primary study description to indicate merge
     $originalDesc = $primaryStudy['study_description'] ?: 'Study';
     $mergedDesc = $originalDesc . ' (Merged: ' . count($studies) . ' studies)';
+    $mergedStudyIds = json_encode(array_column(array_slice($studies, 1), 'study_instance_uid'));
+    $mergedOrthancIdsStr = implode(',', $mergedOrthancIds);
     
-    // Update primary study with new instance count and description
-    $updateStmt = $pdo->prepare("
+    // Update primary study with new instance count, description, and merged IDs
+    $updateStmt = $mysqli->prepare("
         UPDATE cached_studies 
         SET study_description = ?,
             instance_count = ?,
-            merged_study_ids = ?
+            merged_study_ids = ?,
+            merged_orthanc_ids = ?
         WHERE study_instance_uid = ?
     ");
-    $updateStmt->execute([
-        $mergedDesc,
-        $totalImageCount,
-        json_encode(array_column(array_slice($studies, 1), 'study_instance_uid')),
-        $primaryUID
-    ]);
-    
-    // Store the merged orthanc IDs for later retrieval when viewing
-    // We'll store them in a simple format that the load_study_fast.php can parse
-    $mergedIdsStmt = $pdo->prepare("
-        UPDATE cached_studies 
-        SET merged_orthanc_ids = ?
-        WHERE study_instance_uid = ?
-    ");
-    $mergedIdsStmt->execute([
-        implode(',', $mergedOrthancIds),
-        $primaryUID
-    ]);
+    $updateStmt->bind_param('sisss', $mergedDesc, $totalImageCount, $mergedStudyIds, $mergedOrthancIdsStr, $primaryUID);
+    $updateStmt->execute();
+    $updateStmt->close();
     
     // Delete the merged studies from cached_studies (keep only primary)
-    $deleteStmt = $pdo->prepare("DELETE FROM cached_studies WHERE study_instance_uid IN ($placeholders) AND study_instance_uid != ?");
-    $deleteParams = array_merge($studyUIDs, [$primaryUID]);
-    $deleteStmt->execute($deleteParams);
+    // Need to build a query that excludes the primary
+    $deleteUIDs = [];
+    for ($i = 1; $i < count($studies); $i++) {
+        $deleteUIDs[] = $studies[$i]['study_instance_uid'];
+    }
+    
+    if (!empty($deleteUIDs)) {
+        $deletePlaceholders = implode(',', array_fill(0, count($deleteUIDs), '?'));
+        $deleteTypes = str_repeat('s', count($deleteUIDs));
+        $deleteStmt = $mysqli->prepare("DELETE FROM cached_studies WHERE study_instance_uid IN ($deletePlaceholders)");
+        $deleteStmt->bind_param($deleteTypes, ...$deleteUIDs);
+        $deleteStmt->execute();
+        $deleteStmt->close();
+    }
     
     // Update the patient's study count
     $patientId = $primaryStudy['patient_id'];
-    $countStmt = $pdo->prepare("SELECT COUNT(*) FROM cached_studies WHERE patient_id = ?");
-    $countStmt->execute([$patientId]);
-    $newCount = $countStmt->fetchColumn();
+    $countStmt = $mysqli->prepare("SELECT COUNT(*) as cnt FROM cached_studies WHERE patient_id = ?");
+    $countStmt->bind_param('s', $patientId);
+    $countStmt->execute();
+    $countResult = $countStmt->get_result();
+    $newCount = $countResult->fetch_assoc()['cnt'];
+    $countStmt->close();
     
-    $updatePatientStmt = $pdo->prepare("UPDATE cached_patients SET study_count = ? WHERE patient_id = ?");
-    $updatePatientStmt->execute([$newCount, $patientId]);
+    $updatePatientStmt = $mysqli->prepare("UPDATE cached_patients SET study_count = ? WHERE patient_id = ?");
+    $updatePatientStmt->bind_param('is', $newCount, $patientId);
+    $updatePatientStmt->execute();
+    $updatePatientStmt->close();
     
-    $pdo->commit();
+    // Commit transaction
+    $mysqli->commit();
+    $mysqli->autocommit(true);
     
     echo json_encode([
         'success' => true,
@@ -122,8 +146,9 @@ try {
     ]);
     
 } catch (Exception $e) {
-    if (isset($pdo) && $pdo->inTransaction()) {
-        $pdo->rollBack();
+    if (isset($mysqli)) {
+        $mysqli->rollback();
+        $mysqli->autocommit(true);
     }
     echo json_encode([
         'success' => false,
