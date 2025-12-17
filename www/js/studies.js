@@ -1007,7 +1007,7 @@ function updateMergeButton() {
     }
 }
 
-function mergeSelectedStudies() {
+async function mergeSelectedStudies() {
     const checkboxes = document.querySelectorAll('.study-checkbox:checked');
 
     if (checkboxes.length < 2) {
@@ -1015,21 +1015,72 @@ function mergeSelectedStudies() {
         return;
     }
 
-    // Collect orthanc_ids
-    const orthancIds = [];
+    // Collect study UIDs
+    const studyUIDs = [];
     checkboxes.forEach(cb => {
-        const orthancId = cb.dataset.orthancId;
-        if (orthancId && orthancId !== 'null' && orthancId !== 'undefined') {
-            orthancIds.push(orthancId);
+        const studyUid = cb.dataset.studyUid;
+        if (studyUid && studyUid !== 'null' && studyUid !== 'undefined') {
+            studyUIDs.push(studyUid);
         }
     });
 
-    if (orthancIds.length < 2) {
-        alert('Not enough valid studies selected. Please ensure studies have valid Orthanc IDs.');
+    if (studyUIDs.length < 2) {
+        alert('Not enough valid studies selected. Please ensure studies have valid Study UIDs.');
         return;
     }
 
-    // Open viewer with comma-separated study IDs
-    const mergedIds = orthancIds.join(',');
-    window.open(`../index.php?study_id=${encodeURIComponent(mergedIds)}`, '_blank');
+    // Confirmation dialog
+    const confirmMessage = `⚠️ PERMANENT MERGE WARNING ⚠️
+
+You are about to permanently merge ${studyUIDs.length} studies into ONE study.
+
+This action:
+• Combines all images into a single study
+• Deletes the original individual studies
+• CANNOT be undone!
+
+The merged study will use the latest study date.
+
+Are you sure you want to proceed?`;
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    // Show loading state on button
+    const btn = document.getElementById('mergeStudiesBtn');
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Merging...';
+
+    try {
+        const response = await fetch('../api/studies/merge-studies.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                study_uids: studyUIDs
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`✅ Studies merged successfully!\n\n${result.merged_study.studies_merged} studies combined.\nTotal images: ${result.merged_study.total_images}`);
+
+            // Reload the studies list
+            const urlParams = new URLSearchParams(window.location.search);
+            loadStudies(urlParams.get('patient_id'));
+        } else {
+            throw new Error(result.error || 'Merge failed');
+        }
+    } catch (error) {
+        console.error('Merge error:', error);
+        alert('Error merging studies: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+        updateMergeButton();
+    }
 }

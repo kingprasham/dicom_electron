@@ -49,10 +49,10 @@ try {
     $mysqli = getDbConnection();
 
     foreach ($idList as $currentId) {
-        // Get study info from database
+        // Get study info from database (including merged_orthanc_ids for merged studies)
         $stmt = $mysqli->prepare("
             SELECT cs.orthanc_id, cs.study_instance_uid, cs.study_description,
-                   cs.instance_count, cp.patient_name, cp.patient_id
+                   cs.instance_count, cp.patient_name, cp.patient_id, cs.merged_orthanc_ids
             FROM cached_studies cs
             LEFT JOIN cached_patients cp ON cs.patient_id = cp.patient_id
             WHERE cs.orthanc_id = ? OR cs.study_instance_uid = ?
@@ -80,12 +80,28 @@ try {
 
         $orthancStudyId = $studyInfo['orthanc_id'];
         
-        // Load instances from Orthanc
+        // Load instances from main Orthanc study
         try {
             $studyImages = loadFromOrthanc($orthancStudyId, $studyInfo);
             $allImages = array_merge($allImages, $studyImages);
         } catch (Exception $e) {
             error_log("Failed to load study $currentId: " . $e->getMessage());
+        }
+
+        // Also load images from merged studies if this is a merged study
+        if (!empty($studyInfo['merged_orthanc_ids'])) {
+            $mergedIds = explode(',', $studyInfo['merged_orthanc_ids']);
+            foreach ($mergedIds as $mergedOrthancId) {
+                $mergedOrthancId = trim($mergedOrthancId);
+                if (!empty($mergedOrthancId)) {
+                    try {
+                        $mergedImages = loadFromOrthanc($mergedOrthancId, $studyInfo);
+                        $allImages = array_merge($allImages, $mergedImages);
+                    } catch (Exception $e) {
+                        error_log("Failed to load merged study $mergedOrthancId: " . $e->getMessage());
+                    }
+                }
+            }
         }
     }
 

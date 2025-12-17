@@ -445,7 +445,7 @@
         <!-- Search Section -->
         <div class="search-section">
             <div class="row align-items-end g-3">
-                <div class="col-md-8">
+                <div class="col-md-4">
                     <label class="form-label text-light mb-2">
                         <i class="bi bi-search"></i> Quick Search
                     </label>
@@ -456,9 +456,29 @@
                     </div>
                 </div>
 
-                <div class="col-md-4">
+                <div class="col-md-2">
+                    <label class="form-label text-light mb-2">
+                        <i class="bi bi-calendar-event"></i> From Date
+                    </label>
+                    <input type="date" id="fromDate" class="form-control bg-dark text-light border-secondary">
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label text-light mb-2">
+                        <i class="bi bi-calendar-event"></i> To Date
+                    </label>
+                    <input type="date" id="toDate" class="form-control bg-dark text-light border-secondary">
+                </div>
+
+                <div class="col-md-2">
+                    <button type="button" class="btn btn-outline-primary w-100" id="applyDateFilter">
+                        <i class="bi bi-funnel"></i> Apply
+                    </button>
+                </div>
+
+                <div class="col-md-2">
                     <button type="button" class="btn btn-secondary w-100" id="clearFilters">
-                        <i class="bi bi-x-circle"></i> Clear Search
+                        <i class="bi bi-x-circle"></i> Clear All
                     </button>
                 </div>
             </div>
@@ -519,6 +539,8 @@
             // Clear filters
             document.getElementById('clearFilters').addEventListener('click', () => {
                 document.getElementById('searchInput').value = '';
+                document.getElementById('fromDate').value = '';
+                document.getElementById('toDate').value = '';
                 currentFilters = {};
                 filterAndDisplayPatients();
             });
@@ -567,6 +589,13 @@
 
                     filterAndDisplayPatients();
                 });
+            });
+
+            // Apply Date Filter button
+            document.getElementById('applyDateFilter').addEventListener('click', () => {
+                currentFilters.fromDate = document.getElementById('fromDate').value;
+                currentFilters.toDate = document.getElementById('toDate').value;
+                filterAndDisplayPatients();
             });
 
             // Initialize view buttons state
@@ -677,6 +706,24 @@
                 );
             }
 
+            // Apply date range filter
+            if (currentFilters.fromDate || currentFilters.toDate) {
+                filtered = filtered.filter(p => {
+                    const studyDate = p.latest_study_date || p.last_study_date || '';
+                    if (!studyDate) return false;
+
+                    // Normalize date to YYYY-MM-DD format for comparison
+                    let normalizedDate = studyDate;
+                    if (studyDate.length === 8 && !studyDate.includes('-')) {
+                        normalizedDate = `${studyDate.substr(0, 4)}-${studyDate.substr(4, 2)}-${studyDate.substr(6, 2)}`;
+                    }
+
+                    if (currentFilters.fromDate && normalizedDate < currentFilters.fromDate) return false;
+                    if (currentFilters.toDate && normalizedDate > currentFilters.toDate) return false;
+                    return true;
+                });
+            }
+
             // Apply sorting
             filtered = [...filtered].sort((a, b) => {
                 switch (sortBy) {
@@ -734,6 +781,7 @@
                                     <th>Patient ID</th>
                                     <th>Gender</th>
                                     <th>Age</th>
+                                    <th>Last Study</th>
                                     <th>Studies</th>
                                 </tr>
                             </thead>
@@ -776,6 +824,7 @@
                     <div class="patient-card-stats">
                         <span class="patient-card-stat"><i class="bi bi-gender-ambiguous"></i> ${gender}</span>
                         <span class="patient-card-stat"><i class="bi bi-calendar-heart"></i> ${ageDisplay}</span>
+                        <span class="patient-card-stat"><i class="bi bi-calendar-check"></i> ${formatStudyDate(patient.latest_study_date || patient.last_study_date)}</span>
                         <span class="patient-card-stat"><i class="bi bi-folder"></i> ${patient.study_count || 0} Studies</span>
                     </div>
                 </div>
@@ -835,11 +884,32 @@
                     </td>
                     <td>
                         <span class="badge-custom">
+                            <i class="bi bi-calendar-check"></i> ${formatStudyDate(patient.latest_study_date || patient.last_study_date)}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge-custom">
                             <i class="bi bi-folder"></i> ${patient.study_count || 0}
                         </span>
                     </td>
                 </tr>
             `;
+        }
+
+        function formatStudyDate(dateStr) {
+            if (!dateStr) return 'N/A';
+            // Handle YYYYMMDD format
+            if (dateStr.length === 8 && !dateStr.includes('-')) {
+                return `${dateStr.substr(6, 2)}/${dateStr.substr(4, 2)}/${dateStr.substr(0, 4)}`;
+            }
+            // Handle YYYY-MM-DD format
+            if (dateStr.includes('-')) {
+                const parts = dateStr.split('-');
+                if (parts.length >= 3) {
+                    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                }
+            }
+            return dateStr;
         }
 
         function getInitials(name) {
