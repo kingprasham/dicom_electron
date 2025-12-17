@@ -178,12 +178,19 @@ window.DICOM_VIEWER.EventHandlers = {
                 item.style.opacity = '0.5';
                 item.style.cursor = 'grabbing';
                 item.classList.add('dragging');
+
+                // CRITICAL: Disable pointer-events on all viewport children during drag
+                // This allows drop events to reach the parent viewport element
+                document.body.classList.add('dragging-active');
             });
 
             item.addEventListener('dragend', (e) => {
                 item.style.opacity = '1';
                 item.style.cursor = 'grab';
                 item.classList.remove('dragging');
+
+                // Restore pointer-events on viewport children
+                document.body.classList.remove('dragging-active');
 
                 setTimeout(() => {
                     window.DICOM_DRAG_DATA = null;
@@ -433,12 +440,62 @@ window.DICOM_VIEWER.EventHandlers = {
 
     /**
      * Make viewport a valid drop target
+     * FIXED: Better handling for empty viewports and canvas events
      */
     makeViewportDropTarget(viewport) {
         if (viewport.dataset.dropConfigured === 'true') return;
         viewport.dataset.dropConfigured = 'true';
 
         const viewportName = viewport.dataset.viewportName || viewport.id || 'unknown';
+        
+        // CRITICAL FIX: Ensure viewport itself can receive events
+        // Canvas elements inside viewports need to allow events to pass through during drag
+        viewport.style.position = 'relative';
+        
+        // Setup canvas event forwarding for drag operations
+        const setupCanvasEventForwarding = () => {
+            const canvas = viewport.querySelector('canvas');
+            if (canvas && !canvas.dataset.dragForwardingSetup) {
+                canvas.dataset.dragForwardingSetup = 'true';
+                
+                // Forward dragover events from canvas to viewport
+                canvas.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Manually trigger the viewport's dragover handler
+                    viewport.dispatchEvent(new DragEvent('dragover', {
+                        dataTransfer: e.dataTransfer,
+                        bubbles: true,
+                        cancelable: true
+                    }));
+                });
+                
+                // Forward drop events from canvas to viewport
+                canvas.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Manually trigger the viewport's drop handler
+                    viewport.dispatchEvent(new DragEvent('drop', {
+                        dataTransfer: e.dataTransfer,
+                        bubbles: true,
+                        cancelable: true
+                    }));
+                });
+            }
+        };
+        
+        // Setup canvas forwarding now and observe for future canvas additions
+        setupCanvasEventForwarding();
+        
+        // Use MutationObserver to handle dynamically added canvases
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length > 0) {
+                    setupCanvasEventForwarding();
+                }
+            });
+        });
+        observer.observe(viewport, { childList: true, subtree: true });
 
         // DRAGOVER - CRITICAL: Must prevent default to allow drop
         viewport.addEventListener('dragover', (e) => {
@@ -568,6 +625,7 @@ window.DICOM_VIEWER.EventHandlers = {
 
     /**
      * Handle dropping a series image onto a viewport
+     * FIXED: Better handling for empty viewports and proper cleanup
      */
     async handleSeriesImageDrop(viewport, data) {
         this.log('Handling series image drop, index:', data.imageIndex);
@@ -596,7 +654,19 @@ window.DICOM_VIEWER.EventHandlers = {
         const loadingDiv = this.showViewportLoading(viewport);
 
         try {
+            // CRITICAL: Ensure viewport is enabled before attempting to display image
             await this.ensureViewportEnabled(viewport);
+
+            // CRITICAL: Remove empty viewport indicator BEFORE loading image
+            // This ensures the viewport canvas is fully accessible
+            const emptyIndicator = viewport.querySelector('.empty-viewport-indicator');
+            if (emptyIndicator) {
+                emptyIndicator.remove();
+                this.log('Removed empty viewport indicator');
+            }
+            
+            // Clear the isEmpty flag
+            viewport.dataset.isEmpty = 'false';
 
             const imageInfo = state.currentSeriesImages[imageIndex];
             this.log('Loading image info:', imageInfo);
@@ -611,13 +681,15 @@ window.DICOM_VIEWER.EventHandlers = {
 
             const image = await cornerstone.loadImage(imageId);
             await cornerstone.displayImage(viewport, image);
-            cornerstone.updateImage(viewport);
-
-            // Remove empty viewport indicator if present
-            const emptyIndicator = viewport.querySelector('.empty-viewport-indicator');
-            if (emptyIndicator) {
-                emptyIndicator.remove();
+            
+            // Fit to window for better initial display
+            try {
+                cornerstone.fitToWindow(viewport);
+            } catch (fitErr) {
+                // Ignore fit errors
             }
+            
+            cornerstone.updateImage(viewport);
 
             if (window.DICOM_VIEWER.MANAGERS.viewportManager) {
                 window.DICOM_VIEWER.MANAGERS.viewportManager.setActiveViewport(viewport);
@@ -636,6 +708,14 @@ window.DICOM_VIEWER.EventHandlers = {
             this.log('Error loading image:', error);
             this.hideViewportLoading(loadingDiv);
             this.showMessage('Failed to load image: ' + error.message);
+            
+            // If there was an error, restore the empty indicator
+            if (!viewport.querySelector('.empty-viewport-indicator')) {
+                const pageNavigator = window.DICOM_VIEWER.MANAGERS?.pageNavigator;
+                if (pageNavigator) {
+                    pageNavigator.clearViewport(viewport);
+                }
+            }
         }
     },
 
@@ -784,16 +864,49 @@ window.DICOM_VIEWER.EventHandlers = {
 
     /**
      * Ensure viewport is enabled for Cornerstone
+     * FIXED: More robust enabling with retry logic for empty viewports
      */
     async ensureViewportEnabled(viewport) {
-        try {
-            cornerstone.getEnabledElement(viewport);
-            this.log('Viewport already enabled');
-        } catch (e) {
-            this.log('Enabling viewport...');
-            cornerstone.enable(viewport);
-            await new Promise(resolve => setTimeout(resolve, 200));
+        const maxRetries = 3;
+        let retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try {
+                const enabledElement = cornerstone.getEnabledElement(viewport);
+                if (enabledElement) {
+                    this.log('Viewport already enabled');
+                    return true;
+                }
+            } catch (e) {
+                // Viewport not enabled, try to enable it
+                this.log(`Enabling viewport (attempt ${retryCount + 1})...`);
+                
+                try {
+                    // Ensure viewport has proper dimensions before enabling
+                    if (viewport.offsetWidth === 0 || viewport.offsetHeight === 0) {
+                        this.log('Viewport has no dimensions, waiting...');
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                    
+                    cornerstone.enable(viewport);
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    
+                    // Verify it was enabled
+                    cornerstone.getEnabledElement(viewport);
+                    this.log('Viewport enabled successfully');
+                    return true;
+                    
+                } catch (enableError) {
+                    this.log(`Enable attempt ${retryCount + 1} failed:`, enableError.message);
+                    retryCount++;
+                    await new Promise(resolve => setTimeout(resolve, 100 * retryCount));
+                }
+            }
+            retryCount++;
         }
+        
+        this.log('Failed to enable viewport after max retries');
+        return false;
     },
 
     /**

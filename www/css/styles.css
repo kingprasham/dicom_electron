@@ -3420,6 +3420,137 @@ body.reporting-mode #viewport-container {
     }
 }
 
+/* ============================================
+   DRAG AND DROP STYLES FOR EMPTY VIEWPORTS
+   ============================================ */
+
+/* During active drag, disable pointer events on viewport children to allow drop */
+body.dragging-active .viewport > *:not(canvas) {
+    pointer-events: none !important;
+}
+
+/* Empty viewport indicator styles */
+.empty-viewport-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none !important;
+    z-index: 5;
+}
+
+.empty-viewport-indicator > div {
+    pointer-events: none !important;
+}
+
+/* Viewport drag-over visual feedback */
+.viewport.drag-over {
+    border: 3px dashed #0d6efd !important;
+    box-shadow: 0 0 30px rgba(13, 110, 253, 0.9), inset 0 0 50px rgba(13, 110, 253, 0.2) !important;
+    background-color: rgba(13, 110, 253, 0.1) !important;
+}
+
+.viewport.drag-over .empty-viewport-indicator > div {
+    background: rgba(13, 110, 253, 0.2) !important;
+}
+
+.viewport.drag-over .empty-viewport-indicator i {
+    color: #fff !important;
+    opacity: 1 !important;
+    transform: scale(1.2);
+    transition: transform 0.2s ease;
+}
+
+/* Drop success animation */
+.viewport.drop-success {
+    animation: dropSuccessPulse 0.5s ease-out;
+}
+
+@keyframes dropSuccessPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 20px 10px rgba(40, 167, 69, 0.3);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+    }
+}
+
+/* Viewport dragging state */
+.viewport.viewport-dragging {
+    opacity: 0.6 !important;
+    border: 2px dashed #ffc107 !important;
+}
+
+/* Series item being dragged */
+.series-item.dragging {
+    opacity: 0.5 !important;
+    border: 2px dashed #0d6efd !important;
+    background: rgba(13, 110, 253, 0.1) !important;
+}
+
+/* Drag handle on viewports */
+.viewport-drag-handle {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    width: 28px;
+    height: 28px;
+    background: rgba(13, 110, 253, 0.8);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    z-index: 200;
+    color: white;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+    pointer-events: auto;
+}
+
+.viewport:hover .viewport-drag-handle {
+    opacity: 1;
+}
+
+.viewport-drag-handle:hover {
+    background: rgba(13, 110, 253, 1);
+}
+
+.viewport-drag-handle:active {
+    cursor: grabbing;
+    background: rgba(255, 193, 7, 0.9);
+}
+
+/* Empty viewport specific styling */
+.viewport[data-is-empty="true"] {
+    cursor: default;
+}
+
+.viewport[data-is-empty="true"]:hover {
+    border-color: #0d6efd !important;
+    box-shadow: 0 0 10px rgba(13, 110, 253, 0.3) !important;
+}
+
+/* Viewport loading indicator during drag-drop */
+.viewport-loading-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(2px);
+}
+
 #floating-report-btn {
     animation: floating-pulse 3s ease-in-out infinite !important;
 }

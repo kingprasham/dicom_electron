@@ -330,6 +330,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
     /**
      * Load images for current page into viewports
+     * FIXED: Better handling for empty viewports to ensure drag-drop works
      */
     async loadCurrentPageImages() {
         const state = window.DICOM_VIEWER.STATE;
@@ -358,6 +359,9 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                     // Remove empty viewport indicator if present
                     const emptyIndicator = viewport.querySelector('.empty-viewport-indicator');
                     if (emptyIndicator) emptyIndicator.remove();
+                    
+                    // Clear isEmpty flag
+                    viewport.dataset.isEmpty = 'false';
 
                     // Construct imageId
                     let imageId = image.imageId || image.image_id;
@@ -390,9 +394,25 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                 }
             } else {
                 // Clear viewport if no image for this slot
+                // This will also ensure the viewport is properly enabled for drag-drop
                 this.clearViewport(viewport);
             }
         }
+        
+        // CRITICAL: After loading/clearing viewports, ensure all drop handlers are set up
+        // This catches any viewports that may have been missed during initial setup
+        setTimeout(() => {
+            const eventHandlers = window.DICOM_VIEWER?.EventHandlers;
+            if (eventHandlers) {
+                viewports.forEach(viewport => {
+                    // Re-verify drop handlers are working
+                    if (!viewport.dataset.dropConfigured) {
+                        eventHandlers.setupSingleViewport(viewport);
+                        console.log('Set up drop handler for viewport after page load');
+                    }
+                });
+            }
+        }, 100);
 
         // Update image counter in sidebar
         const imageCounter = document.getElementById('imageCounter');
@@ -502,6 +522,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
 
     /**
      * Clear viewport - properly reset to empty state with visible empty indicator
+     * FIXED: Ensures viewport remains enabled and can receive drag-drop events
      */
     clearViewport(viewport) {
         // Remove any overlays
@@ -512,8 +533,11 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         const prevEmpty = viewport.querySelector('.empty-viewport-indicator');
         if (prevEmpty) prevEmpty.remove();
 
+        // IMPORTANT: Keep track if we need to re-enable the viewport
+        let needsReEnable = false;
+
         try {
-            // Try to disable cornerstone on this viewport to stop it from rendering
+            // Check if viewport is enabled
             const enabledElement = cornerstone.getEnabledElement(viewport);
             if (enabledElement) {
                 // Clear the image reference completely
@@ -537,7 +561,10 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                 }
             }
         } catch (e) {
-            // Viewport not enabled by cornerstone - just clear any canvas
+            // Viewport not enabled by cornerstone - need to enable it
+            needsReEnable = true;
+            
+            // Clear any existing canvas
             const canvases = viewport.querySelectorAll('canvas');
             canvases.forEach(canvas => {
                 const ctx = canvas.getContext('2d');
@@ -546,9 +573,39 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
             });
         }
 
+        // CRITICAL FIX: Ensure viewport is enabled for Cornerstone so drops work
+        // Empty viewports must be enabled to receive images via drag-drop
+        if (needsReEnable) {
+            try {
+                cornerstone.enable(viewport);
+                console.log('Re-enabled viewport for drag-drop:', viewport.dataset.viewportName || viewport.id);
+            } catch (enableErr) {
+                console.warn('Could not re-enable viewport:', enableErr);
+            }
+        }
+
+        // CRITICAL FIX: Ensure drop handlers are configured on this viewport
+        // This is needed because the viewport may have been recreated or modified
+        if (viewport.dataset.dropConfigured !== 'true') {
+            if (window.DICOM_VIEWER && window.DICOM_VIEWER.EventHandlers) {
+                window.DICOM_VIEWER.EventHandlers.setupSingleViewport(viewport);
+                console.log('Re-configured drop handlers for empty viewport');
+            }
+        }
+
         // Add visible empty viewport indicator
+        // FIXED: All elements have pointer-events: none to allow drops to pass through
         const emptyIndicator = document.createElement('div');
         emptyIndicator.className = 'empty-viewport-indicator';
+        emptyIndicator.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            z-index: 5;
+        `;
         emptyIndicator.innerHTML = `
             <div style="
                 position: absolute;
@@ -560,16 +617,19 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                background: #1a1a1a;
-                color: #555;
-                z-index: 5;
+                background: rgba(26, 26, 26, 0.9);
+                color: #666;
                 pointer-events: none;
             ">
-                <i class="bi bi-image" style="font-size: 24px; opacity: 0.5;"></i>
-                <span style="font-size: 11px; margin-top: 4px;">Drop image here</span>
+                <i class="bi bi-plus-circle" style="font-size: 32px; opacity: 0.6; color: #0d6efd;"></i>
+                <span style="font-size: 12px; margin-top: 8px; color: #888;">Drop image here</span>
+                <span style="font-size: 10px; margin-top: 2px; color: #555;">or drag from sidebar</span>
             </div>
         `;
         viewport.appendChild(emptyIndicator);
+
+        // Mark viewport as empty for styling purposes
+        viewport.dataset.isEmpty = 'true';
     }
 
     /**

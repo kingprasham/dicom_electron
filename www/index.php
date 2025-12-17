@@ -2500,6 +2500,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
             }
         })();
     </script>
+    <script src="js/fixes/dicom-viewport-fix-v3.js"></script>
 </body>
     <!-- Auto-Backup Scheduler Trigger -->
     <!-- Custom Drawing Tool Manager (replaces FreehandRoi) -->

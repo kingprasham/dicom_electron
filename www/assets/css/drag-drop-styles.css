@@ -68,6 +68,34 @@
 }
 
 /* ===========================================
+   CRITICAL: Disable pointer-events on viewport children during drag
+   This allows drop events to reach the parent viewport element
+   =========================================== */
+body.dragging-active .viewport>* {
+    pointer-events: none !important;
+}
+
+body.dragging-active .viewport canvas {
+    pointer-events: none !important;
+}
+
+body.dragging-active .viewport .empty-viewport-indicator {
+    pointer-events: none !important;
+}
+
+body.dragging-active .viewport .viewport-overlay {
+    pointer-events: none !important;
+}
+
+body.dragging-active .viewport .viewport-info {
+    pointer-events: none !important;
+}
+
+body.dragging-active .viewport .viewport-drag-handle {
+    pointer-events: none !important;
+}
+
+/* ===========================================
    VIEWPORT DRAG HANDLE - THE KEY FEATURE
    =========================================== */
 .viewport-drag-handle {
@@ -123,9 +151,12 @@
 }
 
 @keyframes dropPulse {
-    0%, 100% {
+
+    0%,
+    100% {
         box-shadow: 0 0 20px rgba(13, 110, 253, 0.6), inset 0 0 40px rgba(13, 110, 253, 0.15);
     }
+
     50% {
         box-shadow: 0 0 35px rgba(13, 110, 253, 0.9), inset 0 0 60px rgba(13, 110, 253, 0.25);
     }
@@ -165,9 +196,11 @@
         transform: scale(1.02);
         box-shadow: 0 0 40px rgba(40, 167, 69, 1);
     }
+
     50% {
         transform: scale(1.01);
     }
+
     100% {
         transform: scale(1);
         box-shadow: 0 0 25px rgba(40, 167, 69, 0.8);
@@ -199,7 +232,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: 
+    background:
         linear-gradient(to right, transparent 49.5%, rgba(13, 110, 253, 0.3) 49.5%, rgba(13, 110, 253, 0.3) 50.5%, transparent 50.5%),
         linear-gradient(to bottom, transparent 49.5%, rgba(13, 110, 253, 0.3) 49.5%, rgba(13, 110, 253, 0.3) 50.5%, transparent 50.5%);
     pointer-events: none;
@@ -239,15 +272,15 @@
         touch-action: none;
         -webkit-touch-callout: none;
     }
-    
+
     .series-item[draggable="true"] {
         -webkit-user-drag: element;
     }
-    
+
     .viewport {
         touch-action: pan-x pan-y;
     }
-    
+
     /* Show drag handle always on mobile */
     .viewport-drag-handle {
         opacity: 0.7 !important;
@@ -260,10 +293,23 @@
 
 /* Subtle bounce on successful drop */
 @keyframes dropBounce {
-    0%, 100% { transform: scale(1); }
-    25% { transform: scale(1.02); }
-    50% { transform: scale(0.98); }
-    75% { transform: scale(1.01); }
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    25% {
+        transform: scale(1.02);
+    }
+
+    50% {
+        transform: scale(0.98);
+    }
+
+    75% {
+        transform: scale(1.01);
+    }
 }
 
 .viewport.drop-bounce {
@@ -272,9 +318,12 @@
 
 /* Glow effect */
 @keyframes glowPulse {
-    0%, 100% {
+
+    0%,
+    100% {
         box-shadow: 0 0 5px rgba(13, 110, 253, 0.3);
     }
+
     50% {
         box-shadow: 0 0 20px rgba(13, 110, 253, 0.6);
     }
@@ -286,9 +335,12 @@
 
 /* Handle pulse animation */
 @keyframes handlePulse {
-    0%, 100% {
+
+    0%,
+    100% {
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     }
+
     50% {
         box-shadow: 0 2px 12px rgba(13, 110, 253, 0.6);
     }

@@ -1704,10 +1704,18 @@ window.DICOM_VIEWER.populateSeriesList = function (files) {
     seriesList.scrollTop = 0;
 
     console.log(`Populated series list with ${files.length} items grouped by patient - thumbnails generating`);
+
+    // Setup drag events on newly created series items for drag-drop to viewports
+    setTimeout(() => {
+        if (window.DICOM_VIEWER.EventHandlers && window.DICOM_VIEWER.EventHandlers.setupSeriesDraggable) {
+            window.DICOM_VIEWER.EventHandlers.setupSeriesDraggable();
+            console.log('Series drag events configured for drag-drop');
+        }
+    }, 100);
 };
 
 // Floating arrange button for large thumbnails mode
-window.DICOM_VIEWER.updateFloatingArrangeButton = function() {
+window.DICOM_VIEWER.updateFloatingArrangeButton = function () {
     const state = window.DICOM_VIEWER.STATE;
     const selectionCount = state.orderedImageSelection.length;
     const seriesList = document.getElementById('series-list');
@@ -1741,7 +1749,7 @@ window.DICOM_VIEWER.updateFloatingArrangeButton = function() {
 };
 
 // Clear floating button when switching modes
-window.DICOM_VIEWER.hideFloatingArrangeButton = function(skipClearSelection = false) {
+window.DICOM_VIEWER.hideFloatingArrangeButton = function (skipClearSelection = false) {
     const floatingBtn = document.getElementById('floatingArrangeBtn');
     if (floatingBtn) {
         floatingBtn.style.display = 'none';
