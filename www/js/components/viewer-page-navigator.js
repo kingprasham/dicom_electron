@@ -563,9 +563,10 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                 background: #1a1a1a;
                 color: #555;
                 z-index: 5;
+                pointer-events: none;
             ">
                 <i class="bi bi-image" style="font-size: 24px; opacity: 0.5;"></i>
-                <span style="font-size: 11px; margin-top: 4px;">Empty</span>
+                <span style="font-size: 11px; margin-top: 4px;">Drop image here</span>
             </div>
         `;
         viewport.appendChild(emptyIndicator);
