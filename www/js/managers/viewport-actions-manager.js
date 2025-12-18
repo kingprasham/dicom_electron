@@ -933,27 +933,19 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         // Clear selection BEFORE reloading
         this.deselectAllViewports();
 
-        // Reload viewports with remaining images from STATE
-        logToTerminal(`🔄 Reloading viewports with ${state.currentSeriesImages.length} remaining images...`);
-        await this.reloadViewportsFromSeries(viewports, state.currentSeriesImages, currentPage);
+        // SMOOTH DELETION: Instead of clearing all viewports, just shift images
+        logToTerminal(`🔄 Smoothly shifting remaining images...`);
+        await this.smoothShiftImages(viewports, state.currentSeriesImages, startImageIndex, indicesToRemove.length);
 
-        // CRITICAL FIX: Only recalculate pages, DON'T reload images (we just loaded them above!)
+        // Update page navigator without reloading
         if (pageNavigator) {
-            // Save the current loadCurrentPageImages function
             const originalLoad = pageNavigator.loadCurrentPageImages;
-
-            // Temporarily replace it with a no-op
             pageNavigator.loadCurrentPageImages = async function() {
-                logToTerminal('📄 [SKIP] Page navigator tried to reload images (prevented)');
+                logToTerminal('📄 [SKIP] Page navigator reload prevented');
             };
-
-            // Call refresh (which will recalculate pages but won't reload images)
             pageNavigator.refresh();
-
-            // Restore the original function
             pageNavigator.loadCurrentPageImages = originalLoad;
-
-            logToTerminal('📄 Page navigator refreshed (calculation only, no reload)');
+            logToTerminal('📄 Page navigator updated');
         }
 
         // Show message
@@ -966,6 +958,77 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
 
         logToTerminal('✅✅✅ DELETE COMPLETED SUCCESSFULLY ✅✅✅');
         logToTerminal(`Final verification: ${state.currentSeriesImages.length} images in series`);
+    }
+
+    /**
+     * Smooth image shifting after deletion - NO VISIBLE REFRESH
+     *
+     * Instead of clearing all viewports and reloading, we:
+     * 1. Only update viewports that need to change
+     * 2. Load next images into empty slots
+     * 3. Clear only the last viewport if needed
+     *
+     * This creates an instant, smooth deletion experience
+     */
+    async smoothShiftImages(viewports, seriesImages, startImageIndex, deletedCount) {
+        const viewportCount = viewports.length;
+        const state = window.DICOM_VIEWER.STATE;
+
+        console.log(`Smooth shift: ${deletedCount} deleted, shifting from index ${startImageIndex}`);
+
+        // For each viewport, load the correct image (shifted by deletion)
+        for (let i = 0; i < viewportCount; i++) {
+            const viewport = viewports[i];
+            const imageIndex = startImageIndex + i;
+
+            if (imageIndex < seriesImages.length) {
+                // Load the next image (shifted position)
+                const image = seriesImages[imageIndex];
+
+                try {
+                    // Get current image in this viewport
+                    let currentImageId = null;
+                    try {
+                        const enabledElement = cornerstone.getEnabledElement(viewport);
+                        if (enabledElement && enabledElement.image) {
+                            currentImageId = enabledElement.image.imageId;
+                        }
+                    } catch (e) {}
+
+                    // Generate the URL for the new image
+                    const newImageUrl = window.DICOM_VIEWER.getImageUrl(image);
+
+                    // Only reload if the image is different (avoid unnecessary reloads)
+                    if (currentImageId !== newImageUrl) {
+                        console.log(`Viewport ${i + 1}: Loading image ${imageIndex + 1}`);
+                        const loadedImage = await cornerstone.loadImage(newImageUrl);
+                        await cornerstone.displayImage(viewport, loadedImage);
+                        cornerstone.fitToWindow(viewport);
+                        state.viewportImages[i] = newImageUrl;
+                    } else {
+                        console.log(`Viewport ${i + 1}: Already showing correct image`);
+                    }
+                } catch (error) {
+                    console.error(`Error loading image into viewport ${i + 1}:`, error);
+                }
+            } else {
+                // No more images - clear this viewport (it's at the end)
+                console.log(`Viewport ${i + 1}: Clearing (no more images)`);
+                try {
+                    const canvas = viewport.querySelector('canvas');
+                    if (canvas) {
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Could not clear viewport:', e);
+                }
+            }
+        }
+
+        console.log('Smooth shift complete');
     }
 
     /**
