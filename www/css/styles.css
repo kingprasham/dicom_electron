@@ -805,10 +805,10 @@ body {
     grid-template-rows: 1fr !important;
 }
 
-/* 2 Spots - Landscape (side by side) */
+/* 2 Spots - Portrait (vertical stack) - changed from Landscape per user request */
 .layout-spots-2 {
-    grid-template-columns: repeat(2, 1fr) !important;
-    grid-template-rows: 1fr !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: repeat(2, 1fr) !important;
 }
 
 /* 4 Spots - Landscape (2x2) */
@@ -853,6 +853,12 @@ body {
     grid-template-rows: repeat(4, 1fr) !important;
 }
 
+/* 18 Spots - Portrait (3 columns x 6 rows) - Added per user request */
+.layout-spots-18 {
+    grid-template-columns: repeat(3, 1fr) !important;
+    grid-template-rows: repeat(6, 1fr) !important;
+}
+
 /* ==========================================
    PRINT-FOCUSED LAYOUT WIDTHS
    Portrait layouts use ~65% width (narrower but visible)
@@ -873,18 +879,19 @@ body {
     margin-right: auto !important;
 }
 
-/* Portrait Layouts: 6, 8, 15 spots */
+/* Portrait Layouts: 2, 6, 8, 15, 18 spots */
+.viewport-container.layout-spots-2,
 .viewport-container.layout-spots-6,
 .viewport-container.layout-spots-8,
-.viewport-container.layout-spots-15 {
+.viewport-container.layout-spots-15,
+.viewport-container.layout-spots-18 {
     max-width: 65% !important;
     margin-left: auto !important;
     margin-right: auto !important;
 }
 
-/* Landscape Layouts: 1, 2, 4, 9, 12, 16 spots */
+/* Landscape Layouts: 1, 4, 9, 12, 16 spots */
 .viewport-container.layout-spots-1,
-.viewport-container.layout-spots-2,
 .viewport-container.layout-spots-4,
 .viewport-container.layout-spots-9,
 .viewport-container.layout-spots-12,
@@ -3425,7 +3432,7 @@ body.reporting-mode #viewport-container {
    ============================================ */
 
 /* During active drag, disable pointer events on viewport children to allow drop */
-body.dragging-active .viewport > *:not(canvas) {
+body.dragging-active .viewport>*:not(canvas) {
     pointer-events: none !important;
 }
 
@@ -3440,7 +3447,7 @@ body.dragging-active .viewport > *:not(canvas) {
     z-index: 5;
 }
 
-.empty-viewport-indicator > div {
+.empty-viewport-indicator>div {
     pointer-events: none !important;
 }
 
@@ -3451,7 +3458,7 @@ body.dragging-active .viewport > *:not(canvas) {
     background-color: rgba(13, 110, 253, 0.1) !important;
 }
 
-.viewport.drag-over .empty-viewport-indicator > div {
+.viewport.drag-over .empty-viewport-indicator>div {
     background: rgba(13, 110, 253, 0.2) !important;
 }
 
@@ -3471,9 +3478,11 @@ body.dragging-active .viewport > *:not(canvas) {
     0% {
         box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
     }
+
     50% {
         box-shadow: 0 0 20px 10px rgba(40, 167, 69, 0.3);
     }
+
     100% {
         box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
     }

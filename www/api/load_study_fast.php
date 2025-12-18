@@ -123,7 +123,7 @@ try {
         // Use the first study's UID/ID as primary reference, or a combined string
         'studyUID' => $firstStudyInfo['study_instance_uid'], 
         'orthancId' => $firstStudyInfo['orthanc_id'],
-        'studyDescription' => !empty($mergedDescription) ? implode(' + ', array_unique($mergedDescription)) : 'Merged Study',
+        'studyDescription' => !empty($mergedDescription) ? implode(' + ', array_unique($mergedDescription)) : (count($idList) > 1 ? 'Merged Study' : ''),
         'patientName' => $firstStudyInfo['patient_name'],
         'images' => $allImages,
         'totalImages' => count($allImages),

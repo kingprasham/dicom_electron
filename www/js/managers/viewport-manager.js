@@ -189,22 +189,67 @@ window.DICOM_VIEWER.MPRViewportManager = class {
             element.style.border = '1px solid #444444'; // Gray for normal views
         }
 
-        // ENHANCED: Click handler with visual feedback and blue border activation
+        // ENHANCED: Click handler with Windows-like selection behavior
+        // FIXED: Only handle clicks that are NOT part of a tool operation (drag)
+        let mouseDownTime = 0;
+        let mouseDownPos = { x: 0, y: 0 };
+        
+        element.addEventListener('mousedown', (e) => {
+            mouseDownTime = Date.now();
+            mouseDownPos = { x: e.clientX, y: e.clientY };
+        });
+        
         element.addEventListener('click', (e) => {
+            const viewportActionsManager = window.DICOM_VIEWER.MANAGERS.viewportActionsManager;
+            const state = window.DICOM_VIEWER.STATE;
+            
+            // FIXED: Check if this was a drag operation (tool use) vs a real click
+            // If mouse moved significantly or was held down for a while, it's a tool operation
+            const clickDuration = Date.now() - mouseDownTime;
+            const mouseMovement = Math.abs(e.clientX - mouseDownPos.x) + Math.abs(e.clientY - mouseDownPos.y);
+            
+            // If it was a drag (tool operation), don't change selection
+            if (clickDuration > 200 || mouseMovement > 5) {
+                console.log('Ignoring click - was a tool drag operation');
+                return; // Don't interfere with tool operations
+            }
+            
             e.preventDefault();
             e.stopPropagation();
 
-            // Handle Ctrl+Click for multi-selection
+            // Handle Ctrl+Click for multi-selection (toggle)
             if (e.ctrlKey || e.metaKey) {
-                console.log('Ctrl+Click detected on viewport:', element.id);
-                const viewportActionsManager = window.DICOM_VIEWER.MANAGERS.viewportActionsManager;
+                console.log('Ctrl+Click: Toggle selection for viewport:', element.id);
                 if (viewportActionsManager) {
-                    console.log('Calling toggleViewportSelection');
                     viewportActionsManager.toggleViewportSelection(element);
-                } else {
-                    console.warn('viewportActionsManager not found!');
                 }
+                // Also set as active for tools to work on
+                this.setActiveViewport(element, false); // false = don't clear others
                 return;
+            }
+
+            // Regular click: Windows-like behavior - select ONLY this viewport
+            // BUT: If multiple viewports are selected and this viewport is one of them,
+            // don't deselect - just set as active (allows tool to work on all selected)
+            if (state.selectedViewports && state.selectedViewports.size > 1 && state.selectedViewports.has(element.id)) {
+                console.log('Click on already-selected viewport in multi-select mode - keeping selection');
+                this.setActiveViewport(element, false);
+                return;
+            }
+
+            console.log('Click: Single select viewport:', element.id);
+
+            // Deselect all other viewports first
+            if (viewportActionsManager) {
+                viewportActionsManager.deselectAllViewports();
+            }
+
+            // Select only this viewport
+            if (state.selectedViewports) {
+                state.selectedViewports.add(element.id);
+            }
+            if (viewportActionsManager) {
+                viewportActionsManager.updateViewportSelectionVisual(element, true);
             }
 
             // Quick scale animation for click feedback
@@ -213,21 +258,10 @@ window.DICOM_VIEWER.MPRViewportManager = class {
                 element.style.transform = '';
             }, 150);
 
-            // Set this viewport as active (will apply blue border)
-            this.setActiveViewport(element);
+            // Set this viewport as active
+            this.setActiveViewport(element, true);
 
-            // Show feedback message
-            const viewportDisplayName = {
-                'original': 'Original',
-                'axial': 'Axial MPR',
-                'sagittal': 'Sagittal MPR',
-                'coronal': 'Coronal MPR',
-                'main': 'Main'
-            }[name] || name;
-
-            if (window.DICOM_VIEWER && window.DICOM_VIEWER.showAISuggestion) {
-                window.DICOM_VIEWER.showAISuggestion(`${viewportDisplayName} viewport activated (blue border indicates active)`);
-            }
+            // REMOVED: Toast notification - yellow border provides sufficient feedback
         });
 
         // Enhanced hover effects
@@ -417,8 +451,9 @@ window.DICOM_VIEWER.MPRViewportManager = class {
     }
 
     // FIXED: Safer viewport methods with proper click handling
-    // FIXED: setActiveViewport with consistent blue border for active viewport
-    setActiveViewport(viewport) {
+    // FIXED: setActiveViewport with consistent YELLOW border (same as selection)
+    // clearOtherSelections: if true, deselects all other viewports first (Windows-like)
+    setActiveViewport(viewport, clearOtherSelections = false) {
         if (!viewport) {
             console.warn('Cannot set null viewport as active');
             return;
@@ -439,31 +474,32 @@ window.DICOM_VIEWER.MPRViewportManager = class {
             }
         }
 
-        // Remove active class and styling from all viewports
-        this.viewports.forEach(vp => {
-            vp.classList.remove('active');
-            vp.style.boxShadow = '';
-            // Reset to default border based on viewport type
-            if (vp.classList.contains('mpr-view')) {
-                vp.style.border = '1px solid #28a745'; // Green for MPR
-            } else {
-                vp.style.border = '1px solid #444444'; // Gray for normal
+        // Clear selection visual from previous active viewport only
+        // (not all viewports, to preserve multi-selection)
+        if (this.activeViewport && this.activeViewport !== viewport) {
+            // If clearOtherSelections is false (Ctrl+click), keep other selections
+            // If true (regular click), deselectAllViewports was already called
+            if (!clearOtherSelections) {
+                // Just remove the "active" indicator, keep selection visual if selected
+                this.activeViewport.classList.remove('active');
             }
-        });
+        }
 
-        // Set active viewport with BLUE border and glow
+        // Set active viewport with YELLOW border (unified with selection)
         viewport.classList.add('active');
-        viewport.style.border = '3px solid #0d6efd'; // Blue border for active
-        viewport.style.boxShadow = '0 0 15px rgba(13, 110, 253, 0.6)'; // Blue glow
+        viewport.style.border = '3px solid #ffc107'; // Yellow border for active/selected
+        viewport.style.boxShadow = '0 0 15px rgba(255, 193, 7, 0.5)'; // Yellow glow
+        viewport.style.outline = ''; // Clear outline since we use border now
+        viewport.style.outlineOffset = '';
 
         // Update all references to active viewport
         this.activeViewport = viewport;
         window.activeViewport = viewport;
         window.DICOM_VIEWER.STATE.activeViewport = viewport;
 
-        console.log(`Active viewport set with blue border: ${viewport.dataset.viewportName}`);
+        console.log(`Active viewport set with yellow border: ${viewport.dataset.viewportName}`);
 
-        // Update UI to show which viewport is active
+        // Update UI (but don't show "Active:" text anymore)
         this.updateActiveViewportUI(viewport);
     }
 
@@ -471,18 +507,14 @@ window.DICOM_VIEWER.MPRViewportManager = class {
 
     // Keep only this version:
     updateActiveViewportUI(viewport) {
-        const viewportName = viewport.dataset.viewportName;
-        const displayName = {
-            'original': 'Original',
-            'axial': 'Axial MPR',
-            'sagittal': 'Sagittal MPR',
-            'coronal': 'Coronal MPR'
-        }[viewportName] || viewportName;
+        // REMOVED: The "Active: X" text label is no longer shown
+        // Selection is now indicated purely by the yellow border
+        // This function can be used for other UI updates if needed in the future
 
-        // Update any active viewport indicator in the UI if it exists
+        // Hide any existing active indicator text
         const activeIndicator = document.querySelector('.active-viewport-indicator');
         if (activeIndicator) {
-            activeIndicator.textContent = `Active: ${displayName}`;
+            activeIndicator.style.display = 'none';
         }
     }
 

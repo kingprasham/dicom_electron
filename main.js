@@ -105,7 +105,11 @@ function createMainWindow() {
         {
             label: 'Tools',
             submenu: [
-                { role: 'toggleDevTools', label: 'Developer Tools' },
+                {
+                    role: 'toggleDevTools',
+                    label: 'Developer Tools',
+                    accelerator: 'F12'  // Add F12 as keyboard shortcut
+                },
                 { type: 'separator' },
                 {
                     label: 'Open Orthanc',

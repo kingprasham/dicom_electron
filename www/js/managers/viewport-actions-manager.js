@@ -800,22 +800,30 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
     }
 
     /**
-     * Delete images from selected viewports - COMPLETELY REWRITTEN v2
-     * 
+     * Delete images from selected viewports - COMPLETELY REWRITTEN v3 with terminal logging
+     *
      * NEW APPROACH: Instead of trying to clear cornerstone viewports (which is unreliable),
      * we REMOVE the images from currentSeriesImages array and reload the viewports.
-     * 
+     *
      * - If no viewports selected: Clear all viewports (with confirmation)
      * - If 1+ viewports selected: Remove those images from series and reload
      */
     async deleteSelectedImage() {
-        console.log('=== DELETE BUTTON CLICKED (NEW LOGIC v2) ===');
+        const logToTerminal = (msg) => {
+            console.log(msg);
+            // Also log to terminal if running in Electron
+            if (typeof process !== 'undefined' && process.stdout) {
+                process.stdout.write(msg + '\n');
+            }
+        };
+
+        logToTerminal('=== DELETE BUTTON CLICKED (v3 - TERMINAL LOGGING) ===');
 
         const state = window.DICOM_VIEWER.STATE;
         const viewportManager = window.DICOM_VIEWER.MANAGERS.viewportManager;
 
         if (!viewportManager) {
-            console.error('Viewport manager not found');
+            logToTerminal('❌ ERROR: Viewport manager not found');
             return;
         }
 
@@ -829,13 +837,14 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         }
 
         const selectedCount = state.selectedViewports.size;
-        console.log(`Selected viewports: ${selectedCount}, Total viewports: ${viewportCount}`);
-        console.log('Selected viewport IDs:', Array.from(state.selectedViewports));
+        logToTerminal(`📊 Selected viewports: ${selectedCount}, Total viewports: ${viewportCount}`);
+        logToTerminal(`📋 Selected viewport IDs: ${JSON.stringify(Array.from(state.selectedViewports))}`);
 
         // CASE 1: No viewports selected - clear all (with confirmation)
         if (selectedCount === 0) {
-            console.log('CASE 1: No viewports selected');
+            logToTerminal('🔹 CASE 1: No viewports selected');
             if (!confirm('No viewports selected. Do you want to clear ALL viewports?')) {
+                logToTerminal('⏸️  User cancelled');
                 return;
             }
 
@@ -849,12 +858,12 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             state.currentSeriesImages = [];
 
             window.DICOM_VIEWER.showAISuggestion('All viewports cleared');
-            console.log('All viewports cleared');
+            logToTerminal('✅ All viewports cleared');
             return;
         }
 
         // CASE 2: One or more viewports selected - delete those images
-        console.log(`CASE 2: Deleting ${selectedCount} selected viewport(s)`);
+        logToTerminal(`🔹 CASE 2: Deleting ${selectedCount} selected viewport(s)`);
 
         // Get indices of selected viewports
         const selectedIndices = [];
@@ -864,17 +873,17 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             const index = viewports.findIndex(vp => vp.id === viewportId);
             if (index !== -1) {
                 selectedIndices.push(index);
+                logToTerminal(`  → Viewport ${viewportId} is at index ${index}`);
             }
         });
 
         // Sort indices in descending order (for safe splice)
         selectedIndices.sort((a, b) => b - a);
-        console.log('Selected viewport indices (sorted desc):', selectedIndices);
+        logToTerminal(`📍 Selected viewport indices (sorted desc): ${JSON.stringify(selectedIndices)}`);
 
-        // Get the current series images
-        const seriesImages = state.currentSeriesImages || [];
-        if (seriesImages.length === 0) {
-            console.log('No series images to delete');
+        // Get the current series images - CRITICAL: Use the array reference directly
+        if (!state.currentSeriesImages || state.currentSeriesImages.length === 0) {
+            logToTerminal('❌ ERROR: No series images to delete');
             window.DICOM_VIEWER.showAISuggestion('No images loaded');
             return;
         }
@@ -884,53 +893,64 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         const currentPage = pageNavigator ? (pageNavigator.currentPage || 0) : 0;
         const startImageIndex = currentPage * viewportCount;
 
-        console.log(`Current page: ${currentPage}, Start index: ${startImageIndex}`);
-        console.log(`Series has ${seriesImages.length} images before deletion`);
+        logToTerminal(`📄 Current page: ${currentPage}, Start index: ${startImageIndex}`);
+        logToTerminal(`📊 Series has ${state.currentSeriesImages.length} images BEFORE deletion`);
 
         // Calculate the actual series indices to remove
         const indicesToRemove = [];
         for (const vpIndex of selectedIndices) {
             const seriesIndex = startImageIndex + vpIndex;
-            if (seriesIndex < seriesImages.length) {
+            if (seriesIndex < state.currentSeriesImages.length) {
                 indicesToRemove.push(seriesIndex);
+                logToTerminal(`  → Will remove series index ${seriesIndex} (viewport ${vpIndex})`);
+            } else {
+                logToTerminal(`  ⚠️  Skipping viewport ${vpIndex} - beyond series length`);
             }
+        }
+
+        if (indicesToRemove.length === 0) {
+            logToTerminal('❌ No valid images to delete');
+            return;
         }
 
         // Sort descending for safe removal
         indicesToRemove.sort((a, b) => b - a);
-        console.log('Series indices to remove:', indicesToRemove);
+        logToTerminal(`🗑️  Final indices to remove (desc order): ${JSON.stringify(indicesToRemove)}`);
 
-        // Remove images from series array (splice in reverse order)
+        // CRITICAL FIX: Remove images from the STATE array directly (NOT a copy)
+        logToTerminal(`🔧 Removing ${indicesToRemove.length} images from STATE.currentSeriesImages...`);
         for (const idx of indicesToRemove) {
-            console.log(`Removing image at series index ${idx}`);
-            seriesImages.splice(idx, 1);
+            const removedImage = state.currentSeriesImages[idx];
+            logToTerminal(`  🗑️  Removing index ${idx}: ${removedImage?.id || 'unknown'}`);
+            state.currentSeriesImages.splice(idx, 1);
         }
 
-        console.log(`Series now has ${seriesImages.length} images after deletion`);
-
-        // Update the state
-        state.currentSeriesImages = seriesImages;
+        logToTerminal(`✅ Series now has ${state.currentSeriesImages.length} images AFTER deletion`);
+        logToTerminal(`📊 Verification: STATE.currentSeriesImages.length = ${state.currentSeriesImages.length}`);
 
         // Clear selection BEFORE reloading
         this.deselectAllViewports();
 
-        // Reload viewports with remaining images
-        await this.reloadViewportsFromSeries(viewports, seriesImages, currentPage);
+        // Reload viewports with remaining images from STATE
+        logToTerminal(`🔄 Reloading viewports with ${state.currentSeriesImages.length} remaining images...`);
+        await this.reloadViewportsFromSeries(viewports, state.currentSeriesImages, currentPage);
 
         // Refresh page navigator
         if (pageNavigator && pageNavigator.refresh) {
             pageNavigator.refresh();
+            logToTerminal('📄 Page navigator refreshed');
         }
 
         // Show message
         const deletedCount = indicesToRemove.length;
         if (deletedCount === 1) {
-            window.DICOM_VIEWER.showAISuggestion(`Deleted 1 image, ${seriesImages.length} remaining`);
+            window.DICOM_VIEWER.showAISuggestion(`Deleted 1 image, ${state.currentSeriesImages.length} remaining`);
         } else {
-            window.DICOM_VIEWER.showAISuggestion(`Deleted ${deletedCount} images, ${seriesImages.length} remaining`);
+            window.DICOM_VIEWER.showAISuggestion(`Deleted ${deletedCount} images, ${state.currentSeriesImages.length} remaining`);
         }
 
-        console.log('Delete completed successfully');
+        logToTerminal('✅✅✅ DELETE COMPLETED SUCCESSFULLY ✅✅✅');
+        logToTerminal(`Final verification: ${state.currentSeriesImages.length} images in series`);
     }
 
     /**

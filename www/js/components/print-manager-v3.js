@@ -171,8 +171,9 @@ window.DICOM_VIEWER.PrintManager = class {
         const containerClasses = viewportContainer.className;
 
         // Portrait layouts: 6 (2x3), 8 (2x4), 15 (3x5), 18 (6x3) - more rows than columns
+        // Also includes 2 (1x2) as requested by user ("2 layout must be in portrait")
         // Also includes any custom grid marked as 'advanced-grid-layout'
-        const portraitLayouts = ['layout-spots-6', 'layout-spots-8', 'layout-spots-15', 'layout-spots-18', 'advanced-grid-layout'];
+        const portraitLayouts = ['layout-spots-2', 'layout-spots-6', 'layout-spots-8', 'layout-spots-15', 'layout-spots-18', 'advanced-grid-layout'];
         for (const layoutClass of portraitLayouts) {
             if (containerClasses.includes(layoutClass)) {
                 console.log(`Auto-detected portrait orientation for ${layoutClass}`);
@@ -180,8 +181,8 @@ window.DICOM_VIEWER.PrintManager = class {
             }
         }
 
-        // Landscape layouts: 1, 2, 4, 9, 12, 16 - square or more columns than rows
-        const landscapeLayouts = ['layout-spots-1', 'layout-spots-2', 'layout-spots-4', 'layout-spots-9', 'layout-spots-12', 'layout-spots-16'];
+        // Landscape layouts: 1, 4, 9, 12, 16 - square or more columns than rows
+        const landscapeLayouts = ['layout-spots-1', 'layout-spots-4', 'layout-spots-9', 'layout-spots-12', 'layout-spots-16'];
         for (const layoutClass of landscapeLayouts) {
             if (containerClasses.includes(layoutClass)) {
                 console.log(`Auto-detected landscape orientation for ${layoutClass}`);
@@ -193,6 +194,9 @@ window.DICOM_VIEWER.PrintManager = class {
         const containerStyles = window.getComputedStyle(viewportContainer);
         const gridCols = containerStyles.gridTemplateColumns.split(' ').filter(s => s.trim()).length || 2;
         const gridRows = containerStyles.gridTemplateRows.split(' ').filter(s => s.trim()).length || 2;
+
+        // Special case for custom 2x1 or 1x2 grids if not caught by classes
+        if (gridCols === 2 && gridRows === 1) return 'portrait'; // Force 2-up to portrait per user request
 
         // More rows than columns = portrait, otherwise landscape
         const orientation = gridRows > gridCols ? 'portrait' : 'landscape';
@@ -970,6 +974,18 @@ window.DICOM_VIEWER.PrintManager = class {
                     clonedContainer.querySelectorAll('.viewport-info').forEach(el => {
                         el.style.display = 'none';
                     });
+
+                    // HANDLE EMPTY VIEWPORTS - Make them completely black
+                    clonedViewports.forEach(vp => {
+                        // Check if viewport is empty (has empty indicator or text)
+                        if (vp.querySelector('.empty-viewport-indicator') || vp.textContent.includes('Drop image here') || vp.dataset.isEmpty === 'true') {
+                            vp.innerHTML = ''; // WIPE CONTENT
+                            vp.style.background = '#000000';
+                            vp.style.backgroundImage = 'none';
+                            vp.style.border = '1px solid #333'; // Minimal border to show grid structure
+                        }
+                    });
+
                     // Hide slice indicators
                     clonedContainer.querySelectorAll('.slice-indicator').forEach(el => {
                         el.style.display = 'none';
@@ -978,17 +994,35 @@ window.DICOM_VIEWER.PrintManager = class {
                     clonedContainer.querySelectorAll('.drawing-overlay').forEach(el => {
                         el.style.display = 'none';
                     });
-                    // Hide crosshairs
-                    clonedContainer.querySelectorAll('.crosshair-overlay, .crosshair-line').forEach(el => {
+                    // Hide crosshairs - CORRECT selectors
+                    clonedContainer.querySelectorAll('.crosshair-container, .crosshair-h, .crosshair-v, .crosshair, .crosshair-overlay, .crosshair-line').forEach(el => {
                         el.style.display = 'none';
                     });
                     // Hide any other overlays
                     clonedContainer.querySelectorAll('.viewport-overlay').forEach(el => {
                         el.style.display = 'none';
                     });
+                    // Hide empty viewport indicators
+                    clonedContainer.querySelectorAll('.empty-viewport-indicator').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    // Hide active viewport border/highlight
+                    clonedViewports.forEach(vp => {
+                        vp.classList.remove('active');
+                        vp.style.outline = 'none';
+                        vp.style.boxShadow = 'none';
+                    });
                     // Remove viewport name pseudo-element labels by clearing data attribute
                     clonedViewports.forEach(vp => {
                         vp.removeAttribute('data-viewport-name');
+                    });
+                    // Hide image number overlays
+                    clonedContainer.querySelectorAll('.image-page-number').forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    // Hide page indicator
+                    clonedContainer.querySelectorAll('.page-indicator').forEach(el => {
+                        el.style.display = 'none';
                     });
                 }
             });
@@ -1256,15 +1290,32 @@ window.DICOM_VIEWER.PrintManager = class {
             }
 
             for (let page = 0; page < totalPages; page++) {
-                const startIdx = page * viewportCount;
-                const pageImages = images.slice(startIdx, startIdx + viewportCount);
+                const pageNum = page + 1;
 
-                this.updateLoadingProgress(`Capturing page ${page + 1} of ${totalPages}...`, Math.round(((page + 1) / totalPages) * 70));
+                this.updateLoadingProgress(`Capturing page ${pageNum} of ${totalPages}...`, Math.round(((page + 1) / totalPages) * 70));
+
+                // Check if PageNavigator has saved state for this page
+                const pageNavigator = window.DICOM_VIEWER.MANAGERS?.pageNavigator;
+                const savedState = pageNavigator?.getPageState?.(pageNum);
 
                 // Load images into viewports for this page
                 for (let i = 0; i < viewports.length; i++) {
                     const viewport = viewports[i];
-                    const img = pageImages[i];
+                    let imgIndex;
+                    let img;
+
+                    if (savedState && savedState[i] !== undefined && savedState[i] !== null) {
+                        // Use saved state - this respects manual placements
+                        imgIndex = savedState[i];
+                        img = images[imgIndex];
+                        console.log(`[PrintAllPages] Page ${pageNum}, Viewport ${i + 1}: Using SAVED state, image index ${imgIndex}`);
+                    } else {
+                        // Fall back to sequential order
+                        const startIdx = page * viewportCount;
+                        imgIndex = startIdx + i;
+                        img = imgIndex < images.length ? images[imgIndex] : null;
+                        console.log(`[PrintAllPages] Page ${pageNum}, Viewport ${i + 1}: Using DEFAULT order, image index ${imgIndex}`);
+                    }
 
                     if (img) {
                         try {
@@ -1285,7 +1336,7 @@ window.DICOM_VIEWER.PrintManager = class {
                                 await cornerstone.displayImage(viewport, loadedImage);
                             }
                         } catch (err) {
-                            console.warn(`Error loading image ${i} for page ${page}:`, err);
+                            console.warn(`Error loading image ${imgIndex} for page ${page}:`, err);
                         }
                     } else {
                         // Clear viewport if no image for this slot
@@ -1323,19 +1374,44 @@ window.DICOM_VIEWER.PrintManager = class {
 
                             // HIDE ALL VIEWPORT OVERLAYS for clean print output
                             clonedContainer.querySelectorAll('.viewport-info').forEach(el => el.style.display = 'none');
+
+                            // HANDLE EMPTY VIEWPORTS - Make them completely black
+                            clonedViewports.forEach(vp => {
+                                // Check if viewport is empty (has empty indicator or text)
+                                if (vp.querySelector('.empty-viewport-indicator') || vp.textContent.includes('Drop image here') || vp.dataset.isEmpty === 'true') {
+                                    vp.innerHTML = ''; // WIPE CONTENT
+                                    vp.style.background = '#000000';
+                                    vp.style.backgroundImage = 'none';
+                                    vp.style.border = '1px solid #333'; // Minimal border to show grid structure
+                                }
+                            });
+
                             clonedContainer.querySelectorAll('.slice-indicator').forEach(el => el.style.display = 'none');
                             clonedContainer.querySelectorAll('.drawing-overlay').forEach(el => el.style.display = 'none');
-                            clonedContainer.querySelectorAll('.crosshair-overlay, .crosshair-line').forEach(el => el.style.display = 'none');
+                            // Hide crosshairs - CORRECT selectors
+                            clonedContainer.querySelectorAll('.crosshair-container, .crosshair-h, .crosshair-v, .crosshair, .crosshair-overlay, .crosshair-line').forEach(el => el.style.display = 'none');
                             clonedContainer.querySelectorAll('.viewport-overlay').forEach(el => el.style.display = 'none');
+                            // Hide empty viewport indicators
+                            clonedContainer.querySelectorAll('.empty-viewport-indicator').forEach(el => el.style.display = 'none');
+                            // Hide active viewport border/highlight
+                            clonedViewports.forEach(vp => {
+                                vp.classList.remove('active');
+                                vp.style.outline = 'none';
+                                vp.style.boxShadow = 'none';
+                            });
                             // Remove viewport name pseudo-element labels
                             clonedViewports.forEach(vp => vp.removeAttribute('data-viewport-name'));
+                            // Hide image number overlays
+                            clonedContainer.querySelectorAll('.image-page-number').forEach(el => el.style.display = 'none');
+                            // Hide page indicator
+                            clonedContainer.querySelectorAll('.page-indicator').forEach(el => el.style.display = 'none');
                         }
                     });
 
                     pageScreenshots.push({
                         dataUrl: canvas.toDataURL('image/png', 1.0),
                         pageNum: page + 1,
-                        imageCount: pageImages.length
+                        imageCount: viewportCount
                     });
                 } catch (err) {
                     console.error(`Error capturing page ${page + 1}:`, err);

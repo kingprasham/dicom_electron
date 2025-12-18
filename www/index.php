@@ -560,8 +560,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                         <!-- Insert/Clear/Delete buttons -->
                         <div class="btn-group btn-group-sm" role="group">
                             <button class="btn btn-success" id="insertAllBtn" title="Insert All Images"><i class="bi bi-grid-fill"></i></button>
-                            <button class="btn btn-danger" id="clearAllBtn" title="Clear All Viewports"><i class="bi bi-trash"></i></button>
-                            <button class="btn btn-warning" id="deleteSelectedBtn" title="Delete Selected"><i class="bi bi-x-circle"></i></button>
+                            <button class="btn btn-danger" id="clearAllBtn" title="Delete Selected (or All if none selected)"><i class="bi bi-trash"></i></button>
                         </div>
 
                         <!-- Select/Arrange buttons -->
@@ -1073,10 +1072,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                                 <div class="layout-preview layout-1x1"></div>
                                 <span>1</span>
                             </button>
-                            <button class="btn btn-outline-light layout-quick-btn" data-spots="2" data-rows="1" data-cols="2">
-                                <div class="layout-preview layout-1x2"></div>
-                                <span>2</span>
-                            </button>
+
                             <button class="btn btn-outline-light layout-quick-btn active" data-spots="4" data-rows="2" data-cols="2">
                                 <div class="layout-preview layout-2x2"></div>
                                 <span>4</span>
@@ -1095,6 +1091,10 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                     <div class="mb-3">
                         <h6 class="text-muted small mb-2"><i class="bi bi-phone me-1"></i>PORTRAIT</h6>
                         <div class="d-flex flex-wrap gap-2" id="portraitLayouts">
+                            <button class="btn btn-outline-light layout-quick-btn" data-spots="2" data-rows="2" data-cols="1">
+                                <div class="layout-preview layout-1x2"></div>
+                                <span>2</span>
+                            </button>
                             <button class="btn btn-outline-light layout-quick-btn" data-spots="6" data-rows="3" data-cols="2">
                                 <div class="layout-preview layout-3x2"></div>
                                 <span>6</span>
@@ -2432,29 +2432,11 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                 console.log(`Loaded ${imagesToLoad} of ${imageCount} images`);
             });
 
-            // Clear All Viewports
-            clearAllBtn.addEventListener('click', function() {
-                if (!confirm('Are you sure you want to clear all viewports?')) {
-                    return;
-                }
-
-                console.log('Clear All clicked');
-
-                const viewports = document.querySelectorAll('.viewport');
-                viewports.forEach(viewport => {
-                    try {
-                        if (cornerstone.getEnabledElement(viewport)) {
-                            cornerstone.disable(viewport);
-                            cornerstone.enable(viewport);
-                            console.log(`Cleared viewport ${viewport.id}`);
-                        }
-                    } catch (error) {
-                        console.error(`Error clearing viewport ${viewport.id}:`, error);
-                    }
-                });
-
-                console.log('All viewports cleared');
-            });
+            // Clear All Viewports - REMOVED: Now handled by viewport-actions-manager.js
+            // The clearAllBtn now uses unified deleteSelectedImage() function which:
+            // - Deletes only selected viewports if any are selected
+            // - Clears all viewports (with confirmation) if none selected
+            console.log('Clear All button handler moved to viewport-actions-manager.js');
         })();
     </script>
 
@@ -2500,7 +2482,7 @@ $userRole = $_SESSION['role'] ?? 'viewer';
             }
         })();
     </script>
-    <script src="js/fixes/dicom-viewport-fix-v3.js"></script>
+    <script src="js/fixes/dicom-viewport-fix-v5.js"></script>
 </body>
     <!-- Auto-Backup Scheduler Trigger -->
     <!-- Custom Drawing Tool Manager (replaces FreehandRoi) -->

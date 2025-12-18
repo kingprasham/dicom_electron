@@ -712,49 +712,42 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
         // IMPORTANT: Keep track if we need to re-enable the viewport
         let needsReEnable = false;
 
+        // CRITICAL FIX: Disable the viewport completely to remove ALL canvas state
+        // This is the proper way to clear ghost images in Cornerstone
         try {
-            // Check if viewport is enabled
             const enabledElement = cornerstone.getEnabledElement(viewport);
             if (enabledElement) {
-                // Clear the image reference completely
-                if (enabledElement.image) {
-                    enabledElement.image = null;
-                }
-
-                // Clear all canvases
-                const canvases = viewport.querySelectorAll('canvas');
-                canvases.forEach(canvas => {
-                    const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = '#1a1a1a';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                });
-
-                // Force cornerstone to update (will show blank)
-                try {
-                    cornerstone.updateImage(viewport);
-                } catch (updateErr) {
-                    // Ignore update errors
-                }
+                // DISABLE the element - this destroys the canvas and all image state
+                cornerstone.disable(viewport);
+                console.log('Disabled viewport to clear ghost image:', viewport.dataset.viewportName || viewport.id);
+                needsReEnable = true;
             }
         } catch (e) {
-            // Viewport not enabled by cornerstone - need to enable it
+            // Viewport was not enabled
             needsReEnable = true;
-
-            // Clear any existing canvas
-            const canvases = viewport.querySelectorAll('canvas');
-            canvases.forEach(canvas => {
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#1a1a1a';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            });
         }
 
-        // CRITICAL FIX: Ensure viewport is enabled for Cornerstone so drops work
-        // Empty viewports must be enabled to receive images via drag-drop
+        // Remove any leftover canvas elements completely
+        const canvases = viewport.querySelectorAll('canvas');
+        canvases.forEach(canvas => {
+            canvas.remove();
+        });
+
+        // Re-enable viewport with fresh canvas for Cornerstone
         if (needsReEnable) {
             try {
                 cornerstone.enable(viewport);
-                console.log('Re-enabled viewport for drag-drop:', viewport.dataset.viewportName || viewport.id);
+                console.log('Re-enabled viewport with fresh canvas:', viewport.dataset.viewportName || viewport.id);
+
+                // Fill fresh canvas with black after a brief delay
+                setTimeout(() => {
+                    const newCanvases = viewport.querySelectorAll('canvas');
+                    newCanvases.forEach(canvas => {
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = '#000000';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    });
+                }, 50);
             } catch (enableErr) {
                 console.warn('Could not re-enable viewport:', enableErr);
             }
@@ -793,7 +786,7 @@ window.DICOM_VIEWER.ViewerPageNavigator = class {
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                background: rgba(26, 26, 26, 0.9);
+                background: #000000;
                 color: #666;
                 pointer-events: none;
             ">

@@ -7,6 +7,8 @@ window.DICOM_VIEWER.MouseControlsManager = class {
         this.startMousePosition = { x: 0, y: 0 };
         this.originalWindowLevel = { width: 0, center: 0 };
         this.panStartTranslation = { x: 0, y: 0 };
+        this.allPanStartTranslations = new Map(); // Store start translations for all selected viewports
+        this.allOriginalWindowLevels = new Map(); // Store original W/L for all selected viewports
         this.isEnabled = true;
         this.activeViewport = null;
         this.boundEventHandlers = new Map();
@@ -283,17 +285,37 @@ window.DICOM_VIEWER.MouseControlsManager = class {
             const zoomDirection = deltaY > 0 ? -1 : 1; // Reverse for natural zoom direction
             const zoomFactor = 1 + (zoomDirection * zoomSensitivity * Math.abs(deltaY));
 
-            const cornerstoneViewport = cornerstone.getViewport(viewport);
-            const currentScale = cornerstoneViewport.scale;
-            const newScale = Math.max(0.1, Math.min(10, currentScale * zoomFactor));
+            // ENHANCED: Apply zoom to all selected viewports if applicable
+            const state = window.DICOM_VIEWER.STATE;
+            const viewportsToZoom = [];
+            
+            // Check if this viewport is in the selected set
+            if (state.selectedViewports && state.selectedViewports.size > 1 && state.selectedViewports.has(viewport.id)) {
+                // Apply zoom to all selected viewports
+                state.selectedViewports.forEach(vpId => {
+                    const vp = document.getElementById(vpId);
+                    if (vp) viewportsToZoom.push(vp);
+                });
+            } else {
+                // Just zoom this viewport
+                viewportsToZoom.push(viewport);
+            }
+            
+            viewportsToZoom.forEach(vp => {
+                try {
+                    const cornerstoneViewport = cornerstone.getViewport(vp);
+                    if (!cornerstoneViewport) return;
+                    
+                    const currentScale = cornerstoneViewport.scale;
+                    const newScale = Math.max(0.1, Math.min(10, currentScale * zoomFactor));
 
-            console.log(`Zoom: ${currentScale} -> ${newScale} (factor: ${zoomFactor})`);
-
-            cornerstoneViewport.scale = newScale;
-            cornerstone.setViewport(viewport, cornerstoneViewport);
-
-            // Force viewport update
-            cornerstone.updateImage(viewport);
+                    cornerstoneViewport.scale = newScale;
+                    cornerstone.setViewport(vp, cornerstoneViewport);
+                    cornerstone.updateImage(vp);
+                } catch (err) {
+                    // Ignore individual viewport errors
+                }
+            });
 
             // Update viewport info
             if (window.DICOM_VIEWER.updateViewportInfo) {
@@ -314,6 +336,28 @@ window.DICOM_VIEWER.MouseControlsManager = class {
                     width: cornerstoneViewport.voi.windowWidth,
                     center: cornerstoneViewport.voi.windowCenter
                 };
+                
+                // ENHANCED: Store original W/L for all selected viewports
+                this.allOriginalWindowLevels.clear();
+                const state = window.DICOM_VIEWER.STATE;
+                if (state.selectedViewports && state.selectedViewports.size > 1 && state.selectedViewports.has(viewport.id)) {
+                    state.selectedViewports.forEach(vpId => {
+                        const vp = document.getElementById(vpId);
+                        if (vp) {
+                            try {
+                                const vpViewport = cornerstone.getViewport(vp);
+                                if (vpViewport && vpViewport.voi) {
+                                    this.allOriginalWindowLevels.set(vpId, {
+                                        width: vpViewport.voi.windowWidth,
+                                        center: vpViewport.voi.windowCenter
+                                    });
+                                }
+                            } catch (err) {
+                                // Ignore
+                            }
+                        }
+                    });
+                }
             }
         } catch (error) {
             console.warn('Could not get viewport for W/L adjustment:', error);
@@ -338,11 +382,52 @@ window.DICOM_VIEWER.MouseControlsManager = class {
             const newWindowWidth = Math.max(1, this.originalWindowLevel.width + (deltaX * windowSensitivity));
             const newWindowCenter = this.originalWindowLevel.center + (deltaY * levelSensitivity);
 
-            // Apply the changes
-            const viewport = cornerstone.getViewport(this.activeViewport);
-            viewport.voi.windowWidth = newWindowWidth;
-            viewport.voi.windowCenter = newWindowCenter;
-            cornerstone.setViewport(this.activeViewport, viewport);
+            // ENHANCED: Apply W/L to all selected viewports if applicable
+            const state = window.DICOM_VIEWER.STATE;
+            const viewportsToAdjust = [];
+            
+            // Check if this viewport is in the selected set
+            if (state.selectedViewports && state.selectedViewports.size > 1 && state.selectedViewports.has(this.activeViewport.id)) {
+                // Apply W/L to all selected viewports
+                state.selectedViewports.forEach(vpId => {
+                    const vp = document.getElementById(vpId);
+                    if (vp) viewportsToAdjust.push(vp);
+                });
+            } else {
+                // Just adjust this viewport
+                viewportsToAdjust.push(this.activeViewport);
+            }
+            
+            // Calculate the delta from original values
+            const wlDelta = {
+                width: newWindowWidth - this.originalWindowLevel.width,
+                center: newWindowCenter - this.originalWindowLevel.center
+            };
+            
+            viewportsToAdjust.forEach(vp => {
+                try {
+                    const viewport = cornerstone.getViewport(vp);
+                    if (!viewport) return;
+                    
+                    // Get the stored original W/L for this viewport
+                    const originalWL = this.allOriginalWindowLevels.get(vp.id);
+                    
+                    if (originalWL) {
+                        // Apply the same delta to all viewports from their original W/L
+                        viewport.voi.windowWidth = Math.max(1, originalWL.width + wlDelta.width);
+                        viewport.voi.windowCenter = originalWL.center + wlDelta.center;
+                    } else if (vp === this.activeViewport) {
+                        // For the active viewport (if not in multi-select), use absolute values
+                        viewport.voi.windowWidth = newWindowWidth;
+                        viewport.voi.windowCenter = newWindowCenter;
+                    }
+                    
+                    cornerstone.setViewport(vp, viewport);
+                    cornerstone.updateImage(vp);
+                } catch (err) {
+                    // Ignore individual viewport errors
+                }
+            });
 
             // Update UI controls
             this.updateWindowLevelUI(newWindowWidth, newWindowCenter);
@@ -361,6 +446,28 @@ window.DICOM_VIEWER.MouseControlsManager = class {
                     x: cornerstoneViewport.translation.x,
                     y: cornerstoneViewport.translation.y
                 };
+                
+                // ENHANCED: Store start translations for all selected viewports
+                this.allPanStartTranslations.clear();
+                const state = window.DICOM_VIEWER.STATE;
+                if (state.selectedViewports && state.selectedViewports.size > 1 && state.selectedViewports.has(viewport.id)) {
+                    state.selectedViewports.forEach(vpId => {
+                        const vp = document.getElementById(vpId);
+                        if (vp) {
+                            try {
+                                const vpViewport = cornerstone.getViewport(vp);
+                                if (vpViewport) {
+                                    this.allPanStartTranslations.set(vpId, {
+                                        x: vpViewport.translation.x,
+                                        y: vpViewport.translation.y
+                                    });
+                                }
+                            } catch (err) {
+                                // Ignore
+                            }
+                        }
+                    });
+                }
             }
         } catch (error) {
             console.warn('Could not get viewport for pan operation:', error);
@@ -379,12 +486,57 @@ window.DICOM_VIEWER.MouseControlsManager = class {
 
             // Pan sensitivity
             const panSensitivity = 1.0;
-
-            const viewport = cornerstone.getViewport(this.activeViewport);
-            viewport.translation.x = this.panStartTranslation.x + (deltaX * panSensitivity);
-            viewport.translation.y = this.panStartTranslation.y + (deltaY * panSensitivity);
             
-            cornerstone.setViewport(this.activeViewport, viewport);
+            // Calculate new translation values
+            const newTranslationX = this.panStartTranslation.x + (deltaX * panSensitivity);
+            const newTranslationY = this.panStartTranslation.y + (deltaY * panSensitivity);
+
+            // ENHANCED: Apply pan to all selected viewports if applicable
+            const state = window.DICOM_VIEWER.STATE;
+            const viewportsToPan = [];
+            
+            // Check if this viewport is in the selected set
+            if (state.selectedViewports && state.selectedViewports.size > 1 && state.selectedViewports.has(this.activeViewport.id)) {
+                // Apply pan to all selected viewports
+                state.selectedViewports.forEach(vpId => {
+                    const vp = document.getElementById(vpId);
+                    if (vp) viewportsToPan.push(vp);
+                });
+            } else {
+                // Just pan this viewport
+                viewportsToPan.push(this.activeViewport);
+            }
+            
+            // Calculate the delta from start (how much we've moved since starting pan)
+            const panDelta = {
+                x: newTranslationX - this.panStartTranslation.x,
+                y: newTranslationY - this.panStartTranslation.y
+            };
+            
+            viewportsToPan.forEach(vp => {
+                try {
+                    const viewport = cornerstone.getViewport(vp);
+                    if (!viewport) return;
+                    
+                    // Get the stored start translation for this viewport
+                    const startTranslation = this.allPanStartTranslations.get(vp.id);
+                    
+                    if (startTranslation) {
+                        // Apply the same delta to all viewports from their starting positions
+                        viewport.translation.x = startTranslation.x + panDelta.x;
+                        viewport.translation.y = startTranslation.y + panDelta.y;
+                    } else if (vp === this.activeViewport) {
+                        // For the active viewport (if not in multi-select), use absolute values
+                        viewport.translation.x = newTranslationX;
+                        viewport.translation.y = newTranslationY;
+                    }
+                    
+                    cornerstone.setViewport(vp, viewport);
+                    cornerstone.updateImage(vp);
+                } catch (err) {
+                    // Ignore individual viewport errors
+                }
+            });
 
         } catch (error) {
             console.warn('Error during pan operation:', error);
