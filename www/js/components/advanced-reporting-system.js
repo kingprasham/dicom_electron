@@ -1432,10 +1432,27 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
 
         this.reportingMode = true;
 
-        // Add body class to hide sidebar toggle button
+        // Add body class to hide medical report button and sidebar toggle button
         document.body.classList.add('advanced-report-open');
 
+        // Ensure the medical report button is hidden (defensive check)
+        const medicalReportBtn = document.getElementById('medicalReportBtn');
+        if (medicalReportBtn) {
+            medicalReportBtn.style.display = 'none';
+            medicalReportBtn.style.visibility = 'hidden';
+            medicalReportBtn.style.pointerEvents = 'none';
+        }
+
+        // Also hide the floating report button
+        const floatingReportBtn = document.getElementById('floating-report-btn');
+        if (floatingReportBtn) {
+            floatingReportBtn.style.display = 'none';
+            floatingReportBtn.style.visibility = 'hidden';
+            floatingReportBtn.style.pointerEvents = 'none';
+        }
+
         console.log('✓ Split-screen reporting interface created');
+        console.log('✓ Medical report button and floating button hidden (body class added)');
     }
 
     generateReportInterfaceHTML() {
@@ -1593,6 +1610,17 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
                 /* Hide the medical report button when report panel is open */
                 body.advanced-report-open #medicalReportBtn {
                     display: none !important;
+                    visibility: hidden !important;
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                }
+
+                /* Hide the floating report button when report panel is open */
+                body.advanced-report-open #floating-report-btn {
+                    display: none !important;
+                    visibility: hidden !important;
+                    opacity: 0 !important;
+                    pointer-events: none !important;
                 }
 
                 @keyframes slideInRight {
@@ -3218,7 +3246,24 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
         // Remove body class to show sidebar toggle button again
         document.body.classList.remove('advanced-report-open');
 
+        // Restore the medical report button (defensive check)
+        const medicalReportBtn = document.getElementById('medicalReportBtn');
+        if (medicalReportBtn) {
+            medicalReportBtn.style.display = '';
+            medicalReportBtn.style.visibility = '';
+            medicalReportBtn.style.pointerEvents = '';
+        }
+
+        // Also restore the floating report button
+        const floatingReportBtn = document.getElementById('floating-report-btn');
+        if (floatingReportBtn) {
+            floatingReportBtn.style.display = 'flex';
+            floatingReportBtn.style.visibility = '';
+            floatingReportBtn.style.pointerEvents = '';
+        }
+
         console.log('Report interface closed');
+        console.log('Medical report button and floating button restored');
     }
 
     collectFormData() {

@@ -3829,6 +3829,22 @@ body.dragging-active .viewport>*:not(canvas) {
 /* Hide medical report button when report panel is open */
 body.advanced-report-open #medicalReportBtn {
     display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Also hide nearby buttons that may overlap with report sidebar */
+body.advanced-report-open header .d-flex.align-items-center.gap-2.ms-auto #medicalReportBtn {
+    display: none !important;
+}
+
+/* Hide the floating report button when report panel is open */
+body.advanced-report-open #floating-report-btn {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 /* ============================================
