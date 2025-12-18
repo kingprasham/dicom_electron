@@ -89,12 +89,16 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             console.log('Insert All button handler attached');
         }
 
+        // Both clearAll and deleteSelected now use the same smart delete function
         if (clearAllBtn) {
-            clearAllBtn.addEventListener('click', () => this.clearAllViewports());
-            console.log('Clear All button handler attached');
+            // Update button tooltip to reflect new behavior
+            clearAllBtn.title = 'Delete Selected (or All if none selected)';
+            clearAllBtn.addEventListener('click', () => this.deleteSelectedImage());
+            console.log('Clear/Delete button handler attached (unified)');
         }
 
         if (deleteSelectedBtn) {
+            // Both buttons do the same thing now
             deleteSelectedBtn.addEventListener('click', () => this.deleteSelectedImage());
             console.log('Delete Selected button handler attached');
         }
@@ -440,30 +444,12 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
     }
 
     /**
-     * Clear all viewports
+     * Clear all viewports (DEPRECATED - now uses deleteSelectedImage for unified behavior)
+     * This is kept for backward compatibility but just calls deleteSelectedImage
      */
     clearAllViewports() {
-        if (!confirm('Are you sure you want to clear all viewports?')) {
-            return;
-        }
-
-        const viewportManager = window.DICOM_VIEWER.MANAGERS.viewportManager;
-        if (!viewportManager) return;
-
-        const viewports = viewportManager.getAllViewports();
-
-        viewports.forEach(viewport => {
-            try {
-                // Disable and re-enable to clear
-                cornerstone.disable(viewport);
-                cornerstone.enable(viewport);
-                console.log('Cleared viewport:', viewport.id);
-            } catch (error) {
-                console.error('Error clearing viewport:', error);
-            }
-        });
-
-        console.log('All viewports cleared');
+        // Redirect to the unified delete function
+        this.deleteSelectedImage();
     }
 
     /**
@@ -814,9 +800,17 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
     }
 
     /**
-     * Delete image from selected viewport and shift remaining images
+     * Delete images from selected viewports - COMPLETELY REWRITTEN v2
+     * 
+     * NEW APPROACH: Instead of trying to clear cornerstone viewports (which is unreliable),
+     * we REMOVE the images from currentSeriesImages array and reload the viewports.
+     * 
+     * - If no viewports selected: Clear all viewports (with confirmation)
+     * - If 1+ viewports selected: Remove those images from series and reload
      */
-    deleteSelectedImage() {
+    async deleteSelectedImage() {
+        console.log('=== DELETE BUTTON CLICKED (NEW LOGIC v2) ===');
+
         const state = window.DICOM_VIEWER.STATE;
         const viewportManager = window.DICOM_VIEWER.MANAGERS.viewportManager;
 
@@ -827,92 +821,291 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
 
         // Get all viewports in order
         const viewports = viewportManager.getAllViewports();
+        const viewportCount = viewports.length;
 
-        // Find selected viewport - use state.selectedViewports or fall back to active viewport
-        let selectedViewport = null;
-        let selectedIndex = -1;
-
-        if (state.selectedViewports.size > 0) {
-            // Use first selected viewport
-            const selectedId = Array.from(state.selectedViewports)[0];
-            selectedViewport = document.getElementById(selectedId);
-            selectedIndex = viewports.findIndex(vp => vp.id === selectedId);
-        } else if (state.activeViewport) {
-            // Fall back to active viewport
-            selectedViewport = state.activeViewport;
-            selectedIndex = viewports.indexOf(selectedViewport);
+        // Ensure selectedViewports exists
+        if (!state.selectedViewports) {
+            state.selectedViewports = new Set();
         }
 
-        if (!selectedViewport || selectedIndex === -1) {
-            window.DICOM_VIEWER.showAISuggestion('Please select a viewport first (click on it or Ctrl+Click to select)');
-            return;
-        }
+        const selectedCount = state.selectedViewports.size;
+        console.log(`Selected viewports: ${selectedCount}, Total viewports: ${viewportCount}`);
+        console.log('Selected viewport IDs:', Array.from(state.selectedViewports));
 
-        // Check if selected viewport has an image
-        try {
-            const enabledElement = cornerstone.getEnabledElement(selectedViewport);
-            if (!enabledElement || !enabledElement.image) {
-                window.DICOM_VIEWER.showAISuggestion('Selected viewport is already empty');
+        // CASE 1: No viewports selected - clear all (with confirmation)
+        if (selectedCount === 0) {
+            console.log('CASE 1: No viewports selected');
+            if (!confirm('No viewports selected. Do you want to clear ALL viewports?')) {
                 return;
             }
-        } catch (e) {
-            window.DICOM_VIEWER.showAISuggestion('Selected viewport is already empty');
+
+            // Clear all viewports by clearing the canvas manually
+            for (const viewport of viewports) {
+                await this.clearViewportCompletely(viewport);
+            }
+
+            // Clear tracking
+            state.viewportImages = [];
+            state.currentSeriesImages = [];
+
+            window.DICOM_VIEWER.showAISuggestion('All viewports cleared');
+            console.log('All viewports cleared');
             return;
         }
 
-        console.log(`Deleting image from viewport at index ${selectedIndex}`);
+        // CASE 2: One or more viewports selected - delete those images
+        console.log(`CASE 2: Deleting ${selectedCount} selected viewport(s)`);
 
-        // Collect images from subsequent viewports
-        const imagesToShift = [];
-        for (let i = selectedIndex + 1; i < viewports.length; i++) {
-            try {
-                const enabledElement = cornerstone.getEnabledElement(viewports[i]);
-                if (enabledElement && enabledElement.image) {
-                    imagesToShift.push({
-                        image: enabledElement.image,
-                        viewport: cornerstone.getViewport(viewports[i])
-                    });
-                } else {
-                    imagesToShift.push(null);
-                }
-            } catch (error) {
-                imagesToShift.push(null);
+        // Get indices of selected viewports
+        const selectedIndices = [];
+        const selectedIds = Array.from(state.selectedViewports);
+
+        selectedIds.forEach(viewportId => {
+            const index = viewports.findIndex(vp => vp.id === viewportId);
+            if (index !== -1) {
+                selectedIndices.push(index);
+            }
+        });
+
+        // Sort indices in descending order (for safe splice)
+        selectedIndices.sort((a, b) => b - a);
+        console.log('Selected viewport indices (sorted desc):', selectedIndices);
+
+        // Get the current series images
+        const seriesImages = state.currentSeriesImages || [];
+        if (seriesImages.length === 0) {
+            console.log('No series images to delete');
+            window.DICOM_VIEWER.showAISuggestion('No images loaded');
+            return;
+        }
+
+        // Calculate which series image indices to remove
+        const pageNavigator = window.DICOM_VIEWER.MANAGERS.pageNavigator;
+        const currentPage = pageNavigator ? (pageNavigator.currentPage || 0) : 0;
+        const startImageIndex = currentPage * viewportCount;
+
+        console.log(`Current page: ${currentPage}, Start index: ${startImageIndex}`);
+        console.log(`Series has ${seriesImages.length} images before deletion`);
+
+        // Calculate the actual series indices to remove
+        const indicesToRemove = [];
+        for (const vpIndex of selectedIndices) {
+            const seriesIndex = startImageIndex + vpIndex;
+            if (seriesIndex < seriesImages.length) {
+                indicesToRemove.push(seriesIndex);
             }
         }
 
-        // Shift images: move each subsequent image one position left
-        for (let i = selectedIndex; i < viewports.length - 1; i++) {
-            const shiftedImage = imagesToShift[i - selectedIndex];
-            try {
-                if (shiftedImage && shiftedImage.image) {
-                    cornerstone.displayImage(viewports[i], shiftedImage.image);
-                    if (shiftedImage.viewport) {
-                        cornerstone.setViewport(viewports[i], shiftedImage.viewport);
-                    }
-                } else {
-                    // Clear this viewport
-                    cornerstone.disable(viewports[i]);
-                    cornerstone.enable(viewports[i]);
-                }
-            } catch (error) {
-                console.error(`Error shifting image to viewport ${i}:`, error);
-            }
+        // Sort descending for safe removal
+        indicesToRemove.sort((a, b) => b - a);
+        console.log('Series indices to remove:', indicesToRemove);
+
+        // Remove images from series array (splice in reverse order)
+        for (const idx of indicesToRemove) {
+            console.log(`Removing image at series index ${idx}`);
+            seriesImages.splice(idx, 1);
         }
 
-        // Clear the last viewport
-        const lastViewport = viewports[viewports.length - 1];
-        try {
-            cornerstone.disable(lastViewport);
-            cornerstone.enable(lastViewport);
-        } catch (error) {
-            console.error('Error clearing last viewport:', error);
-        }
+        console.log(`Series now has ${seriesImages.length} images after deletion`);
 
-        // Clear selection
+        // Update the state
+        state.currentSeriesImages = seriesImages;
+
+        // Clear selection BEFORE reloading
         this.deselectAllViewports();
 
-        window.DICOM_VIEWER.showAISuggestion(`Image deleted from viewport ${selectedIndex + 1}, remaining images shifted`);
-        console.log('Delete and shift completed');
+        // Reload viewports with remaining images
+        await this.reloadViewportsFromSeries(viewports, seriesImages, currentPage);
+
+        // Refresh page navigator
+        if (pageNavigator && pageNavigator.refresh) {
+            pageNavigator.refresh();
+        }
+
+        // Show message
+        const deletedCount = indicesToRemove.length;
+        if (deletedCount === 1) {
+            window.DICOM_VIEWER.showAISuggestion(`Deleted 1 image, ${seriesImages.length} remaining`);
+        } else {
+            window.DICOM_VIEWER.showAISuggestion(`Deleted ${deletedCount} images, ${seriesImages.length} remaining`);
+        }
+
+        console.log('Delete completed successfully');
+    }
+
+    /**
+     * Completely clear a viewport - REWRITTEN using Cornerstone.js best practices
+     *
+     * Based on research:
+     * - cornerstone.disable() + enable() is unreliable and leaves residual image data
+     * - Must purge from image cache to truly remove image
+     * - Canvas must be completely cleared before re-enabling
+     *
+     * New approach:
+     * 1. Get the current imageId (to remove from cache)
+     * 2. Disable the viewport
+     * 3. Remove image from Cornerstone's image cache
+     * 4. Clear all canvas elements completely
+     * 5. Re-enable viewport with fresh state
+     */
+    async clearViewportCompletely(viewport) {
+        try {
+            console.log('Clearing viewport:', viewport.id);
+
+            // Step 1: Get the current image ID before disabling (to purge from cache)
+            let imageId = null;
+            try {
+                const enabledElement = cornerstone.getEnabledElement(viewport);
+                if (enabledElement && enabledElement.image) {
+                    imageId = enabledElement.image.imageId;
+                    console.log('Found imageId to purge:', imageId);
+                }
+            } catch (e) {
+                // Viewport may not have an image
+            }
+
+            // Step 2: Disable viewport (this removes cornerstone's internal state)
+            try {
+                cornerstone.disable(viewport);
+                console.log('Disabled viewport:', viewport.id);
+            } catch (e) {
+                // Viewport might not be enabled - that's OK
+                console.log('Viewport was not enabled:', viewport.id);
+            }
+
+            // Step 3: Remove image from cache (prevents residual data)
+            if (imageId && cornerstone.imageCache) {
+                try {
+                    // Remove from cache using Cornerstone's cache API
+                    cornerstone.imageCache.removeImageLoadObject(imageId);
+                    console.log('Removed image from cache:', imageId);
+                } catch (e) {
+                    console.warn('Could not remove from cache (image may not be cached):', e.message);
+                }
+            }
+
+            // Step 4: Manually clear ALL canvas elements (cornerstone may create multiple)
+            const canvases = viewport.querySelectorAll('canvas');
+            canvases.forEach(canvas => {
+                try {
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        // Clear entire canvas
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        // Reset canvas dimensions to force complete clear
+                        const w = canvas.width;
+                        const h = canvas.height;
+                        canvas.width = 1;
+                        canvas.height = 1;
+                        canvas.width = w;
+                        canvas.height = h;
+                    }
+                } catch (e) {
+                    console.warn('Could not clear canvas:', e);
+                }
+            });
+
+            // Step 5: Remove any lingering cornerstone elements
+            // Cornerstone creates additional div layers - remove them all
+            const cornerstoneElements = viewport.querySelectorAll('div');
+            cornerstoneElements.forEach(el => {
+                if (el !== viewport && el.parentElement === viewport) {
+                    el.remove();
+                }
+            });
+
+            // Step 6: Re-enable viewport with clean state
+            await new Promise(resolve => setTimeout(resolve, 100)); // Give time for cleanup
+
+            try {
+                cornerstone.enable(viewport);
+                console.log('Re-enabled viewport with clean state:', viewport.id);
+            } catch (e) {
+                console.warn('Could not re-enable viewport:', e);
+            }
+
+            console.log('✓ Viewport completely cleared:', viewport.id);
+
+        } catch (error) {
+            console.error('Error in clearViewportCompletely:', error);
+        }
+    }
+
+    /**
+     * Reload all viewports from series images - ENHANCED for reliability
+     *
+     * Key improvements:
+     * - Force-clear all viewports BEFORE loading new images (prevents residual data)
+     * - Ensure viewports are properly enabled before loading
+     * - Better error handling and recovery
+     */
+    async reloadViewportsFromSeries(viewports, seriesImages, currentPage = 0) {
+        const viewportCount = viewports.length;
+        const startImageIndex = currentPage * viewportCount;
+        const state = window.DICOM_VIEWER.STATE;
+
+        // Clear viewport images tracking
+        state.viewportImages = [];
+
+        console.log(`=== RELOADING VIEWPORTS ===`);
+        console.log(`Page: ${currentPage}, Start Index: ${startImageIndex}, Total Images: ${seriesImages.length}`);
+
+        // STEP 1: FORCE CLEAR ALL VIEWPORTS FIRST (prevents residual images)
+        console.log('Step 1: Clearing all viewports...');
+        for (let i = 0; i < viewportCount; i++) {
+            const viewport = viewports[i];
+            await this.clearViewportCompletely(viewport);
+        }
+
+        // Small delay to ensure clearing is complete
+        await new Promise(resolve => setTimeout(resolve, 150));
+
+        // STEP 2: Load new images into cleared viewports
+        console.log('Step 2: Loading new images...');
+        for (let i = 0; i < viewportCount; i++) {
+            const viewport = viewports[i];
+            const imageIndex = startImageIndex + i;
+
+            if (imageIndex < seriesImages.length) {
+                const image = seriesImages[imageIndex];
+                console.log(`Loading image ${imageIndex + 1}/${seriesImages.length} into viewport ${i + 1}/${viewportCount}`);
+
+                try {
+                    // Ensure viewport is enabled before loading
+                    try {
+                        cornerstone.getEnabledElement(viewport);
+                    } catch (e) {
+                        // Not enabled, enable it
+                        console.log(`Enabling viewport ${viewport.id} before loading`);
+                        cornerstone.enable(viewport);
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+
+                    // Load the image
+                    const url = await this.loadImageToViewport(viewport, image, i);
+                    if (url) {
+                        state.viewportImages[i] = url;
+                        console.log(`✓ Loaded image into viewport ${i + 1}`);
+                    } else {
+                        console.warn(`✗ Failed to get URL for viewport ${i + 1}`);
+                    }
+                } catch (error) {
+                    console.error(`✗ Error loading image into viewport ${i + 1}:`, error);
+                    // On error, try to clear and re-enable the viewport
+                    await this.clearViewportCompletely(viewport);
+                }
+            } else {
+                // No more images - viewport already cleared in step 1
+                console.log(`No image for viewport ${i + 1} (beyond series length)`);
+            }
+        }
+
+        // STEP 3: Fit all loaded images to viewports
+        console.log('Step 3: Fitting images to viewports...');
+        await new Promise(resolve => setTimeout(resolve, 100));
+        this.fitAllImagesToViewports();
+
+        console.log('=== RELOAD COMPLETE ===');
     }
 
     /**
@@ -955,8 +1148,8 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             selectAllBtn.classList.add('btn-secondary');
         }
 
-        window.DICOM_VIEWER.showAISuggestion(`All ${viewports.length} viewports selected - tools will apply to all`);
-        console.log(`Selected all ${viewports.length} viewports`);
+        // REMOVED: Toast notification - visual selection (yellow border) is sufficient feedback
+        console.log(`Selected all ${viewports.length} viewports - tools will apply to all`);
     }
 
     /**
@@ -1026,22 +1219,34 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             }
         }
 
-        const count = state.selectedViewports.size;
-        window.DICOM_VIEWER.showAISuggestion(`${count} viewport${count !== 1 ? 's' : ''} selected`);
+        // Silent selection - no toast message displayed
+        // The visual selection (yellow border) is sufficient feedback
     }
 
     /**
      * Update visual selection indicator for viewport
+     * Uses yellow border (same as active viewport for consistency)
      */
     updateViewportSelectionVisual(viewport, isSelected) {
         if (!viewport) return;
 
         if (isSelected) {
             viewport.classList.add('viewport-selected');
-            viewport.style.outline = '3px solid #ffc107'; // Gold/yellow for selection
-            viewport.style.outlineOffset = '-3px';
+            // Use border instead of outline for consistency with setActiveViewport
+            viewport.style.border = '3px solid #ffc107'; // Gold/yellow for selection
+            viewport.style.boxShadow = '0 0 15px rgba(255, 193, 7, 0.5)'; // Yellow glow
+            viewport.style.outline = ''; // Clear outline since we use border
+            viewport.style.outlineOffset = '';
         } else {
             viewport.classList.remove('viewport-selected');
+            viewport.classList.remove('active');
+            // Reset to default border based on viewport type
+            if (viewport.classList.contains('mpr-view')) {
+                viewport.style.border = '1px solid #28a745'; // Green for MPR
+            } else {
+                viewport.style.border = '1px solid #444444'; // Gray for normal
+            }
+            viewport.style.boxShadow = '';
             viewport.style.outline = '';
             viewport.style.outlineOffset = '';
         }
@@ -1050,13 +1255,19 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
     /**
      * Setup viewport synchronization for selected viewports
      * When one viewport is zoomed/panned/W-L changed, sync to all selected viewports
+     * ENHANCED: Now supports real-time tool synchronization for Zoom, Pan, W/L tools
+     * FIXED: Uses Cornerstone's event system for reliable tool operation detection
      */
     setupViewportSync() {
         const self = this;
 
+        // Track the previous viewport state for calculating deltas
+        this.previousViewportStates = new Map();
+        this.initialViewportStates = new Map(); // Store states at mousedown for delta calc
+
         // Sync function that can be called from various event handlers
-        const syncViewports = function (sourceViewport) {
-            if (self.isSyncing) return;
+        const syncViewports = function (sourceViewport, forceSync = false) {
+            if (self.isSyncing && !forceSync) return;
 
             const state = window.DICOM_VIEWER.STATE;
             if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
@@ -1096,6 +1307,7 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
                     targetVpState.invert = sourceVpState.invert;
 
                     cornerstone.setViewport(targetViewport, targetVpState);
+                    cornerstone.updateImage(targetViewport);
                 } catch (err) {
                     // Silently ignore sync errors
                 }
@@ -1104,56 +1316,226 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             // Reset sync flag after a short delay
             setTimeout(() => {
                 self.isSyncing = false;
-            }, 30);
+            }, 10);
         };
 
-        // Listen for cornerstone image rendered events
+        // Delta-based sync: applies relative changes from initial state
+        const syncViewportsDelta = function (sourceViewport) {
+            if (self.isSyncing) return;
+
+            const state = window.DICOM_VIEWER.STATE;
+            if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
+            if (!sourceViewport || !state.selectedViewports.has(sourceViewport.id)) return;
+
+            // Get current source state
+            let sourceVpState;
+            try {
+                sourceVpState = cornerstone.getViewport(sourceViewport);
+            } catch (err) {
+                return;
+            }
+            if (!sourceVpState) return;
+
+            // Get initial source state
+            const sourceInitial = self.initialViewportStates.get(sourceViewport.id);
+            if (!sourceInitial) {
+                // Fallback to absolute sync if no initial state
+                syncViewports(sourceViewport, true);
+                return;
+            }
+
+            // Calculate deltas from initial state
+            const deltaScale = sourceVpState.scale / sourceInitial.scale;
+            const deltaPanX = sourceVpState.translation.x - sourceInitial.translationX;
+            const deltaPanY = sourceVpState.translation.y - sourceInitial.translationY;
+            const deltaWW = sourceVpState.voi.windowWidth - sourceInitial.windowWidth;
+            const deltaWC = sourceVpState.voi.windowCenter - sourceInitial.windowCenter;
+
+            self.isSyncing = true;
+
+            state.selectedViewports.forEach(viewportId => {
+                if (viewportId === sourceViewport.id) return;
+
+                const targetViewport = document.getElementById(viewportId);
+                if (!targetViewport) return;
+
+                const targetInitial = self.initialViewportStates.get(viewportId);
+                if (!targetInitial) return;
+
+                try {
+                    const targetVpState = cornerstone.getViewport(targetViewport);
+                    if (!targetVpState) return;
+
+                    // Apply deltas relative to each viewport's initial state
+                    targetVpState.scale = targetInitial.scale * deltaScale;
+                    targetVpState.scale = Math.max(0.1, Math.min(10, targetVpState.scale));
+                    targetVpState.translation.x = targetInitial.translationX + deltaPanX;
+                    targetVpState.translation.y = targetInitial.translationY + deltaPanY;
+                    targetVpState.voi.windowWidth = Math.max(1, targetInitial.windowWidth + deltaWW);
+                    targetVpState.voi.windowCenter = targetInitial.windowCenter + deltaWC;
+
+                    cornerstone.setViewport(targetViewport, targetVpState);
+                    cornerstone.updateImage(targetViewport);
+                } catch (err) {
+                    // Silently ignore sync errors
+                }
+            });
+
+            setTimeout(() => {
+                self.isSyncing = false;
+            }, 5);
+        };
+
+        // Capture initial state of ALL selected viewports when mouse goes down
+        const captureInitialStates = function (triggerViewport) {
+            const state = window.DICOM_VIEWER.STATE;
+            if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
+
+            self.initialViewportStates.clear();
+
+            state.selectedViewports.forEach(viewportId => {
+                const viewport = document.getElementById(viewportId);
+                if (!viewport) return;
+
+                try {
+                    const vpState = cornerstone.getViewport(viewport);
+                    if (vpState) {
+                        self.initialViewportStates.set(viewportId, {
+                            scale: vpState.scale,
+                            translationX: vpState.translation.x,
+                            translationY: vpState.translation.y,
+                            windowWidth: vpState.voi.windowWidth,
+                            windowCenter: vpState.voi.windowCenter
+                        });
+                    }
+                } catch (err) {
+                    // Ignore
+                }
+            });
+        };
+
+        // Listen for cornerstone image rendered events (fallback sync)
         document.addEventListener('cornerstoneimagerendered', function (e) {
-            syncViewports(e.target);
+            // Only sync if we have initial states captured (meaning a tool operation is in progress)
+            if (self.initialViewportStates.size > 0) {
+                syncViewportsDelta(e.target);
+            }
         });
 
-        // Listen for mouse move events on viewports (for real-time sync during drag)
+        // ENHANCED: Listen for cornerstone tool mouse drag events for real-time sync
+        document.addEventListener('cornerstonetoolsmousedrag', function (e) {
+            const state = window.DICOM_VIEWER.STATE;
+            if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
+
+            const viewport = e.detail.element;
+            if (!viewport || !state.selectedViewports.has(viewport.id)) return;
+
+            // Sync using delta during tool drag
+            syncViewportsDelta(viewport);
+        });
+
+        // CRITICAL: Capture mousedown on viewports to store initial states
+        document.addEventListener('mousedown', function (e) {
+            const state = window.DICOM_VIEWER.STATE;
+            if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
+
+            const viewport = e.target.closest('.viewport');
+            if (viewport && state.selectedViewports.has(viewport.id)) {
+                captureInitialStates(viewport);
+            }
+        }, true);
+
+        // ENHANCED: Listen for mouse move events on viewports with better tracking
+        let lastSyncTime = 0;
+        const SYNC_INTERVAL = 16; // ~60fps
+
         document.addEventListener('mousemove', function (e) {
             const state = window.DICOM_VIEWER.STATE;
             if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
 
-            // Only sync during mouse button press (dragging)
-            if (e.buttons !== 1) return;
+            // Only sync during mouse button press (dragging) 
+            if (e.buttons === 0) return;
 
             // Find if we're inside a selected viewport
             const viewport = e.target.closest('.viewport');
             if (viewport && state.selectedViewports.has(viewport.id)) {
-                // Debounce the sync
-                if (self.syncTimeout) clearTimeout(self.syncTimeout);
-                self.syncTimeout = setTimeout(() => {
-                    syncViewports(viewport);
-                }, 16); // ~60fps
+                // Throttle sync to prevent performance issues
+                const now = performance.now();
+                if (now - lastSyncTime >= SYNC_INTERVAL) {
+                    lastSyncTime = now;
+                    syncViewportsDelta(viewport);
+                }
             }
         });
 
-        // Listen for mouse up to do final sync
+        // Listen for mouse up to do final sync and clear initial states
         document.addEventListener('mouseup', function (e) {
             const state = window.DICOM_VIEWER.STATE;
-            if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
+            if (!state.selectedViewports || state.selectedViewports.size <= 1) {
+                self.initialViewportStates.clear();
+                return;
+            }
 
             const viewport = e.target.closest('.viewport');
             if (viewport && state.selectedViewports.has(viewport.id)) {
-                setTimeout(() => syncViewports(viewport), 50);
+                // Final sync after mouse release
+                setTimeout(() => {
+                    syncViewportsDelta(viewport);
+                    self.initialViewportStates.clear();
+                }, 20);
+            } else {
+                self.initialViewportStates.clear();
             }
         });
 
-        // Listen for wheel events for scroll sync
+        // ENHANCED: Listen for wheel events with immediate sync for zoom operations
         document.addEventListener('wheel', function (e) {
             const state = window.DICOM_VIEWER.STATE;
             if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
 
             const viewport = e.target.closest('.viewport');
             if (viewport && state.selectedViewports.has(viewport.id)) {
-                setTimeout(() => syncViewports(viewport), 50);
+                // Capture initial states for wheel zoom
+                if (self.initialViewportStates.size === 0) {
+                    captureInitialStates(viewport);
+                }
+                // Immediate sync for wheel zoom
+                setTimeout(() => {
+                    syncViewportsDelta(viewport);
+                    // Clear after short delay to allow consecutive wheel events
+                    setTimeout(() => self.initialViewportStates.clear(), 100);
+                }, 10);
             }
         }, { passive: true });
 
-        console.log('Viewport sync initialized - selected viewports will sync zoom/pan/W-L');
+        // ENHANCED: Listen for cornerstone tool mousedown to capture initial state
+        document.addEventListener('cornerstonetoolsmousedown', function (e) {
+            const state = window.DICOM_VIEWER.STATE;
+            if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
+
+            const viewport = e.detail.element;
+            if (!viewport || !state.selectedViewports.has(viewport.id)) return;
+
+            // Capture initial states for all selected viewports
+            captureInitialStates(viewport);
+        });
+
+        // ENHANCED: Listen for cornerstone tool mouseup to do final sync
+        document.addEventListener('cornerstonetoolsmouseup', function (e) {
+            const state = window.DICOM_VIEWER.STATE;
+            if (!state.selectedViewports || state.selectedViewports.size <= 1) return;
+
+            const viewport = e.detail.element;
+            if (!viewport || !state.selectedViewports.has(viewport.id)) return;
+
+            // Final sync after tool operation
+            setTimeout(() => {
+                syncViewportsDelta(viewport);
+                self.initialViewportStates.clear();
+            }, 30);
+        });
+
+        console.log('Enhanced viewport sync initialized - selected viewports will sync zoom/pan/W-L in real-time');
     }
 };
 
