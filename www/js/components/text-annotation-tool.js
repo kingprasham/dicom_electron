@@ -590,12 +590,27 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
      * Handle viewport click to add text
      */
     handleViewportClick(e, viewport) {
-        if (!this.isActive) return;
-        if (e.target.closest('.text-annotation')) return; // Don't add when clicking existing annotation
+        console.log('Text annotation handleViewportClick called', {
+            isActive: this.isActive,
+            target: e.target,
+            viewport: viewport.id
+        });
+
+        if (!this.isActive) {
+            console.log('Text tool not active, ignoring click');
+            return;
+        }
+
+        if (e.target.closest('.text-annotation')) {
+            console.log('Clicked on existing annotation, ignoring');
+            return; // Don't add when clicking existing annotation
+        }
 
         const rect = viewport.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+
+        console.log(`Adding text annotation at position (${x}, ${y})`);
 
         // Store click position for later
         this.pendingAnnotation = {
@@ -615,10 +630,27 @@ window.DICOM_VIEWER.TextAnnotationTool = class {
         const backdrop = document.getElementById('textDialogBackdrop');
         const input = document.getElementById('textAnnotationInput');
 
-        dialog.style.display = 'block';
+        if (!dialog || !backdrop || !input) {
+            console.error('Text annotation dialog elements not found in DOM');
+            return;
+        }
+
+        // Ensure backdrop is shown first with explicit z-index
         backdrop.style.display = 'block';
+        backdrop.style.zIndex = '9999';
+
+        // Show dialog on top with explicit z-index
+        dialog.style.display = 'block';
+        dialog.style.zIndex = '10000';
+
         input.value = '';
-        input.focus();
+
+        // Use requestAnimationFrame to ensure DOM has updated before focusing
+        requestAnimationFrame(() => {
+            input.focus();
+        });
+
+        console.log('Text input dialog shown');
     }
 
     /**

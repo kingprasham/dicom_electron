@@ -271,6 +271,12 @@
                 if (e.target.closest('.viewport-drag-handle')) return;
                 if (e.target.closest('button')) return;
 
+                // IMPORTANT: Don't interfere if text annotation tool is active
+                if (window.DICOM_VIEWER?.MANAGERS?.textAnnotationTool?.isActive) {
+                    log(`Text annotation tool is active, allowing event to propagate`);
+                    return; // Let text tool handle the click
+                }
+
                 // Use the Ctrl state captured at mousedown, OR check again
                 const ctrlPressed = ctrlWasPressed || e.ctrlKey || e.metaKey;
 
@@ -296,6 +302,12 @@
                     }, true);
 
                     canvas.addEventListener('click', (e) => {
+                        // IMPORTANT: Don't interfere if text annotation tool is active
+                        if (window.DICOM_VIEWER?.MANAGERS?.textAnnotationTool?.isActive) {
+                            log(`Text annotation tool is active on canvas, allowing event to propagate`);
+                            return; // Let text tool handle the click
+                        }
+
                         const ctrlPressed = ctrlWasPressed || e.ctrlKey || e.metaKey;
                         log(`Canvas click on viewport ${index + 1}, Ctrl: ${ctrlPressed}`);
                         e.stopPropagation();
