@@ -1714,49 +1714,22 @@ window.DICOM_VIEWER.populateSeriesList = function (files) {
     }, 100);
 };
 
-// Floating arrange button for large thumbnails mode
+// Floating arrange button - DISABLED (feature removed per user request)
 window.DICOM_VIEWER.updateFloatingArrangeButton = function () {
-    const state = window.DICOM_VIEWER.STATE;
-    const selectionCount = state.orderedImageSelection.length;
-    const seriesList = document.getElementById('series-list');
-    const isLargeThumbnailsMode = seriesList?.classList.contains('large-thumbnails');
-
-    // Get or create floating arrange button
-    let floatingBtn = document.getElementById('floatingArrangeBtn');
-
-    if (!floatingBtn) {
-        floatingBtn = document.createElement('button');
-        floatingBtn.id = 'floatingArrangeBtn';
-        floatingBtn.className = 'btn btn-primary floating-arrange-btn';
-        floatingBtn.innerHTML = '<i class="bi bi-grid-3x3-gap-fill me-2"></i>Arrange';
-        floatingBtn.addEventListener('click', () => {
-            if (window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.viewportActionsManager) {
-                window.DICOM_VIEWER.MANAGERS.viewportActionsManager.arrangeOrderedImages();
-                // Hide the button after arranging
-                floatingBtn.style.display = 'none';
-            }
-        });
-        document.body.appendChild(floatingBtn);
-    }
-
-    // Show/hide and update button based on selection
-    if (isLargeThumbnailsMode && selectionCount > 0) {
-        floatingBtn.innerHTML = `<i class="bi bi-grid-3x3-gap-fill me-2"></i>Arrange (${selectionCount})`;
-        floatingBtn.style.display = 'flex';
-    } else {
-        floatingBtn.style.display = 'none';
+    // Feature disabled - do nothing
+    // Remove any existing floating button
+    const floatingBtn = document.getElementById('floatingArrangeBtn');
+    if (floatingBtn) {
+        floatingBtn.remove();
     }
 };
 
-// Clear floating button when switching modes
+// Clear floating button when switching modes - DISABLED
 window.DICOM_VIEWER.hideFloatingArrangeButton = function (skipClearSelection = false) {
+    // Feature disabled - just remove the button if it exists
     const floatingBtn = document.getElementById('floatingArrangeBtn');
     if (floatingBtn) {
-        floatingBtn.style.display = 'none';
-    }
-    // Also clear selection when exiting large thumbnail mode (unless already cleared)
-    if (!skipClearSelection && window.DICOM_VIEWER.MANAGERS && window.DICOM_VIEWER.MANAGERS.viewportActionsManager) {
-        window.DICOM_VIEWER.MANAGERS.viewportActionsManager.clearOrderedSelection();
+        floatingBtn.remove();
     }
 };
 

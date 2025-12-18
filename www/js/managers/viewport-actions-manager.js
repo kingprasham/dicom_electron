@@ -974,7 +974,7 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         const viewportCount = viewports.length;
         const state = window.DICOM_VIEWER.STATE;
 
-        console.log(`Smooth shift: ${deletedCount} deleted, shifting from index ${startImageIndex}`);
+        console.log(`Smooth shift: ${deletedCount} deleted, shifting from index ${startImageIndex}, total images: ${seriesImages.length}`);
 
         // For each viewport, load the correct image (shifted by deletion)
         for (let i = 0; i < viewportCount; i++) {
@@ -1012,19 +1012,10 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
                     console.error(`Error loading image into viewport ${i + 1}:`, error);
                 }
             } else {
-                // No more images - clear this viewport (it's at the end)
-                console.log(`Viewport ${i + 1}: Clearing (no more images)`);
-                try {
-                    const canvas = viewport.querySelector('canvas');
-                    if (canvas) {
-                        const ctx = canvas.getContext('2d');
-                        if (ctx) {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Could not clear viewport:', e);
-                }
+                // No more images - PROPERLY clear this viewport using clearViewportCompletely
+                console.log(`Viewport ${i + 1}: Clearing completely (no more images at index ${imageIndex})`);
+                await this.clearViewportCompletely(viewport);
+                state.viewportImages[i] = null;
             }
         }
 
