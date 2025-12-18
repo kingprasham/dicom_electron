@@ -1065,11 +1065,14 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
             // Step 3: Remove image from cache (prevents residual data)
             if (imageId && cornerstone.imageCache) {
                 try {
-                    // Remove from cache using Cornerstone's cache API
-                    cornerstone.imageCache.removeImageLoadObject(imageId);
-                    console.log('Removed image from cache:', imageId);
+                    // Check if image is actually in cache before trying to remove
+                    const cachedImage = cornerstone.imageCache.getImageLoadObject(imageId);
+                    if (cachedImage) {
+                        cornerstone.imageCache.removeImageLoadObject(imageId);
+                        console.log('Removed image from cache:', imageId);
+                    }
                 } catch (e) {
-                    console.warn('Could not remove from cache (image may not be cached):', e.message);
+                    // Silently ignore - image not in cache or already removed
                 }
             }
 
