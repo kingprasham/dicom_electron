@@ -890,10 +890,12 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
 
         // Calculate which series image indices to remove
         const pageNavigator = window.DICOM_VIEWER.MANAGERS.pageNavigator;
-        const currentPage = pageNavigator ? (pageNavigator.currentPage || 0) : 0;
-        const startImageIndex = currentPage * viewportCount;
+        // CRITICAL FIX: Page navigator uses 1-indexed pages (page 1, 2, 3...)
+        // We need 0-indexed for array calculations (0, 1, 2...)
+        const currentPage = pageNavigator ? (pageNavigator.currentPage || 1) : 1;
+        const startImageIndex = (currentPage - 1) * viewportCount;  // Convert to 0-indexed
 
-        logToTerminal(`📄 Current page: ${currentPage}, Start index: ${startImageIndex}`);
+        logToTerminal(`📄 Current page (1-indexed): ${currentPage}, Start index (0-indexed): ${startImageIndex}`);
         logToTerminal(`📊 Series has ${state.currentSeriesImages.length} images BEFORE deletion`);
 
         // Calculate the actual series indices to remove
@@ -1072,16 +1074,18 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
      * - Ensure viewports are properly enabled before loading
      * - Better error handling and recovery
      */
-    async reloadViewportsFromSeries(viewports, seriesImages, currentPage = 0) {
+    async reloadViewportsFromSeries(viewports, seriesImages, currentPage = 1) {
         const viewportCount = viewports.length;
-        const startImageIndex = currentPage * viewportCount;
+        // CRITICAL FIX: currentPage is 1-indexed (page 1, 2, 3...)
+        // Convert to 0-indexed for array calculations
+        const startImageIndex = (currentPage - 1) * viewportCount;
         const state = window.DICOM_VIEWER.STATE;
 
         // Clear viewport images tracking
         state.viewportImages = [];
 
         console.log(`=== RELOADING VIEWPORTS ===`);
-        console.log(`Page: ${currentPage}, Start Index: ${startImageIndex}, Total Images: ${seriesImages.length}`);
+        console.log(`Page: ${currentPage} (1-indexed), Start Index: ${startImageIndex} (0-indexed), Total Images: ${seriesImages.length}`);
 
         // STEP 1: FORCE CLEAR ALL VIEWPORTS FIRST (prevents residual images)
         console.log('Step 1: Clearing all viewports...');
