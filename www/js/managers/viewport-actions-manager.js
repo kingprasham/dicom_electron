@@ -935,10 +935,23 @@ window.DICOM_VIEWER.ViewportActionsManager = class {
         logToTerminal(`🔄 Reloading viewports with ${state.currentSeriesImages.length} remaining images...`);
         await this.reloadViewportsFromSeries(viewports, state.currentSeriesImages, currentPage);
 
-        // Refresh page navigator
-        if (pageNavigator && pageNavigator.refresh) {
+        // CRITICAL FIX: Only recalculate pages, DON'T reload images (we just loaded them above!)
+        if (pageNavigator) {
+            // Save the current loadCurrentPageImages function
+            const originalLoad = pageNavigator.loadCurrentPageImages;
+
+            // Temporarily replace it with a no-op
+            pageNavigator.loadCurrentPageImages = async function() {
+                logToTerminal('📄 [SKIP] Page navigator tried to reload images (prevented)');
+            };
+
+            // Call refresh (which will recalculate pages but won't reload images)
             pageNavigator.refresh();
-            logToTerminal('📄 Page navigator refreshed');
+
+            // Restore the original function
+            pageNavigator.loadCurrentPageImages = originalLoad;
+
+            logToTerminal('📄 Page navigator refreshed (calculation only, no reload)');
         }
 
         // Show message
