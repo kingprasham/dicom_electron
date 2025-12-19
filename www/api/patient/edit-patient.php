@@ -66,22 +66,24 @@ try {
             throw new Exception('Patient ID required');
         }
 
-        // Fields that can be updated
-        $allowedFields = [
-            'patient_name',
-            'birth_date',
-            'sex',
-            'patient_id' // Allow changing display ID (not Orthanc ID)
+        // Fields that can be updated (map input names to database columns)
+        $fieldMapping = [
+            'patient_name' => 'patient_name',
+            'birth_date' => 'patient_birth_date',
+            'patient_birth_date' => 'patient_birth_date',
+            'sex' => 'patient_sex',
+            'patient_sex' => 'patient_sex',
+            'patient_id' => 'patient_id' // Allow changing display ID (not Orthanc ID)
         ];
 
         $updates = [];
         $params = [];
         $types = '';
 
-        foreach ($allowedFields as $field) {
-            if (isset($input[$field])) {
-                $updates[] = "$field = ?";
-                $params[] = $input[$field];
+        foreach ($fieldMapping as $inputField => $dbColumn) {
+            if (isset($input[$inputField])) {
+                $updates[] = "$dbColumn = ?";
+                $params[] = $input[$inputField];
                 $types .= 's';
             }
         }

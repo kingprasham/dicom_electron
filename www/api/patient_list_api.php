@@ -15,6 +15,27 @@ requireLogin();
 try {
     $mysqli = getDbConnection();
 
+    // Handle get_studies request - returns studies for a specific patient
+    if (isset($_GET['get_studies']) && isset($_GET['patient_id'])) {
+        $patientId = $_GET['patient_id'];
+        $stmt = $mysqli->prepare("
+            SELECT orthanc_id, study_instance_uid, study_description, study_date, modality
+            FROM cached_studies 
+            WHERE patient_id = ?
+        ");
+        $stmt->bind_param("s", $patientId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $studies = $result->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        
+        echo json_encode([
+            'success' => true,
+            'studies' => $studies
+        ]);
+        exit;
+    }
+
     // Get filter parameters
     $search = $_GET['search'] ?? '';
     $name = $_GET['name'] ?? '';

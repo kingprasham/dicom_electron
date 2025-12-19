@@ -275,8 +275,11 @@ function convertAndUploadImage($imagePath, $fileName, $patientId, $patientName, 
     }
 
     if ($httpCode !== 200) {
-        $errorMsg = json_decode($response, true);
-        throw new Exception("Failed to create DICOM: " . ($errorMsg['Message'] ?? "HTTP $httpCode"));
+        // Orthanc create-dicom failed (likely missing GDCM plugin)
+        // Fall back to storing the image directly in local database
+        error_log("Orthanc create-dicom failed (HTTP $httpCode), using fallback storage");
+        
+        return storeImageLocally($imagePath, $fileName, $patientId, $patientName, $studyDescription, $mimeType);
     }
 
     $result = json_decode($response, true);
@@ -291,6 +294,72 @@ function convertAndUploadImage($imagePath, $fileName, $patientId, $patientName, 
         'orthanc_id' => $result['ID'] ?? null,
         'patient_id' => $result['ParentPatient'] ?? null,
         'study_id' => $result['ParentStudy'] ?? null
+    ];
+}
+
+/**
+ * Store image locally when Orthanc conversion fails
+ */
+function storeImageLocally($imagePath, $fileName, $patientId, $patientName, $studyDescription, $mimeType) {
+    // Generate UIDs
+    $studyUid = '1.2.826.0.1.3680043.2.1125.' . time() . '.' . rand(1000, 9999);
+    $seriesUid = $studyUid . '.1';
+    $instanceUid = $seriesUid . '.1';
+    $orthancId = 'local_' . md5($instanceUid);
+    
+    // Ensure patient ID
+    if (empty($patientId)) {
+        $patientId = 'PAT_' . date('Ymd_His');
+    }
+    
+    // Create storage directory
+    $storageDir = __DIR__ . '/../../uploads/studies/' . $patientId;
+    if (!is_dir($storageDir)) {
+        mkdir($storageDir, 0755, true);
+    }
+    
+    // Copy file
+    $destFile = $storageDir . '/' . $orthancId . '_' . $fileName;
+    copy($imagePath, $destFile);
+    
+    // Store in database
+    $mysqli = getDbConnection();
+    
+    // Insert/update patient
+    $stmt = $mysqli->prepare("
+        INSERT INTO cached_patients (orthanc_id, patient_id, patient_name, study_count, last_study_date)
+        VALUES (?, ?, ?, 1, CURDATE())
+        ON DUPLICATE KEY UPDATE 
+            study_count = study_count + 1,
+            last_study_date = CURDATE(),
+            updated_at = NOW()
+    ");
+    $patientOrthancId = 'local_patient_' . md5($patientId);
+    $stmt->bind_param("sss", $patientOrthancId, $patientId, $patientName);
+    $stmt->execute();
+    $stmt->close();
+    
+    // Insert study
+    $stmt = $mysqli->prepare("
+        INSERT INTO cached_studies (study_instance_uid, orthanc_id, patient_id, study_description, study_date, modality, series_count, instance_count, last_synced)
+        VALUES (?, ?, ?, ?, CURDATE(), 'OT', 1, 1, NOW())
+        ON DUPLICATE KEY UPDATE
+            instance_count = instance_count + 1,
+            last_synced = NOW()
+    ");
+    $stmt->bind_param("ssss", $studyUid, $orthancId, $patientId, $studyDescription);
+    $stmt->execute();
+    $stmt->close();
+    
+    error_log("Image stored locally: $destFile");
+    
+    return [
+        'success' => true,
+        'message' => 'Image stored locally (Orthanc conversion unavailable)',
+        'orthanc_id' => $orthancId,
+        'patient_id' => $patientId,
+        'study_id' => $studyUid,
+        'local_storage' => true
     ];
 }
 
@@ -423,13 +492,15 @@ function syncPatientToDatabase($orthancPatientId) {
 
     $mysqli = getDbConnection();
     $stmt = $mysqli->prepare("
-        INSERT INTO cached_patients (orthanc_id, patient_id, patient_name, birth_date, sex, last_sync)
-        VALUES (?, ?, ?, ?, ?, NOW())
+        INSERT INTO cached_patients (orthanc_id, patient_id, patient_name, patient_birth_date, patient_sex, study_count, last_study_date)
+        VALUES (?, ?, ?, ?, ?, 1, CURDATE())
         ON DUPLICATE KEY UPDATE
             patient_name = VALUES(patient_name),
-            birth_date = VALUES(birth_date),
-            sex = VALUES(sex),
-            last_sync = NOW()
+            patient_birth_date = VALUES(patient_birth_date),
+            patient_sex = VALUES(patient_sex),
+            study_count = study_count + 1,
+            last_study_date = CURDATE(),
+            updated_at = NOW()
     ");
     $stmt->bind_param("sssss", $orthancPatientId, $patientId, $patientName, $birthDate, $sex);
     $stmt->execute();
@@ -502,16 +573,16 @@ function syncStudyToDatabase($orthancStudyId) {
         INSERT INTO cached_studies (
             orthanc_id, study_instance_uid, patient_id,
             study_description, study_date, study_time,
-            accession_number, modalities, is_new, last_sync
+            accession_number, modality, series_count, instance_count, last_synced
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())
         ON DUPLICATE KEY UPDATE
             study_description = VALUES(study_description),
             study_date = VALUES(study_date),
             study_time = VALUES(study_time),
             accession_number = VALUES(accession_number),
-            modalities = VALUES(modalities),
-            last_sync = NOW()
+            modality = VALUES(modality),
+            last_synced = NOW()
     ");
     $stmt->bind_param(
         "ssssssss",

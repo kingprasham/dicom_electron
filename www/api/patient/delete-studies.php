@@ -204,8 +204,8 @@ function handleDeletion() {
             $stmt->close();
 
             // Delete related notes
-            $stmt = $mysqli->prepare("DELETE FROM medical_notes WHERE study_instance_uid = ?");
-            $stmt->bind_param("s", $study['study_instance_uid']);
+            $stmt = $mysqli->prepare("DELETE FROM medical_notes WHERE study_uid = ?");
+            $stmt->bind_param("s", $orthancId);
             $stmt->execute();
             $stmt->close();
 

@@ -436,6 +436,40 @@
                     </ul>
                 </div>
 
+                <!-- Storage Management Dropdown -->
+                <div class="dropdown">
+                    <button class="btn btn-outline-warning dropdown-toggle" type="button" id="storageDropdown"
+                        data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-hdd-stack"></i> Storage
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="storageDropdown">
+                        <li>
+                            <h6 class="dropdown-header"><i class="bi bi-trash me-2"></i>Delete Old Studies</h6>
+                        </li>
+                        <li><a class="dropdown-item" href="#" onclick="showDeleteModal(3)">Older than 3 months</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="showDeleteModal(6)">Older than 6 months</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="showDeleteModal(9)">Older than 9 months</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="showDeleteModal(12)">Older than 12 months</a>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <h6 class="dropdown-header"><i class="bi bi-download me-2"></i>Backup Studies</h6>
+                        </li>
+                        <li><a class="dropdown-item" href="#" onclick="showBackupModal(3)">Older than 3 months</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="showBackupModal(6)">Older than 6 months</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="showBackupModal(9)">Older than 9 months</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="showBackupModal(12)">Older than 12 months</a>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Upload Button -->
+                <button class="btn btn-success" id="uploadBtn" onclick="showUploadModal()">
+                    <i class="bi bi-cloud-upload"></i> Upload
+                </button>
+
                 <button class="btn btn-primary" id="refreshBtn">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
@@ -783,6 +817,7 @@
                                     <th>Age</th>
                                     <th>Last Study</th>
                                     <th>Studies</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -892,6 +927,26 @@
                             <i class="bi bi-folder"></i> ${patient.study_count || 0}
                         </span>
                     </td>
+                    <td>
+                        <div class="d-flex gap-1" onclick="event.stopPropagation()">
+                            <button class="btn btn-sm btn-outline-primary" onclick="editPatient('${patient.orthanc_id}')" title="Edit Patient">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" onclick="viewPatientStudies('${patient.patient_id}')" title="View Studies">
+                                <i class="bi bi-folder2-open"></i>
+                            </button>
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Storage Options">
+                                    <i class="bi bi-hdd"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="#" onclick="backupPatient('${patient.orthanc_id}', '${patient.patient_name}')"><i class="bi bi-download me-2"></i>Backup as ZIP</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-danger" href="#" onclick="deletePatient('${patient.orthanc_id}', '${patient.patient_name}')"><i class="bi bi-trash me-2"></i>Delete Patient</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </td>
                 </tr>
             `;
         }
@@ -931,6 +986,227 @@
             window.location.href = `studies.html?patient_id=${encodeURIComponent(patientId)}`;
         }
 
+        // Edit patient function
+        async function editPatient(orthancId) {
+            if (!orthancId) {
+                alert('Patient ID not found');
+                return;
+            }
+
+            try {
+                // Fetch patient data
+                const response = await fetch(`../api/patient/edit-patient.php?orthanc_id=${orthancId}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    alert('Error loading patient: ' + data.error);
+                    return;
+                }
+
+                const patient = data.patient;
+
+                // Create or show edit modal
+                let modal = document.getElementById('editPatientModal');
+                if (!modal) {
+                    // Create modal HTML
+                    const modalHtml = `
+                        <div class="modal fade" id="editPatientModal" tabindex="-1">
+                            <div class="modal-dialog">
+                                <div class="modal-content bg-dark text-light">
+                                    <div class="modal-header border-secondary">
+                                        <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Edit Patient Details</h5>
+                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <div class="alert alert-info small">
+                                            <i class="bi bi-info-circle me-2"></i>
+                                            Changes only update local cache, not original DICOM files.
+                                        </div>
+                                        <input type="hidden" id="editOrthancId">
+                                        <input type="hidden" id="editOldPatientId">
+                                        <div class="mb-3">
+                                            <label class="form-label">Patient ID</label>
+                                            <input type="text" id="editPatientId" class="form-control bg-secondary text-light">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Patient Name</label>
+                                            <input type="text" id="editPatientName" class="form-control bg-secondary text-light">
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-6">
+                                                <div class="mb-3">
+                                                    <label class="form-label">Birth Date</label>
+                                                    <input type="date" id="editBirthDate" class="form-control bg-secondary text-light">
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="mb-3">
+                                                    <label class="form-label">Sex</label>
+                                                    <select id="editSex" class="form-select bg-secondary text-light">
+                                                        <option value="">Unknown</option>
+                                                        <option value="M">Male</option>
+                                                        <option value="F">Female</option>
+                                                        <option value="O">Other</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer border-secondary">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="button" class="btn btn-primary" onclick="savePatientEdit()">
+                                            <i class="bi bi-check-lg me-2"></i>Save Changes
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    document.body.insertAdjacentHTML('beforeend', modalHtml);
+                    modal = document.getElementById('editPatientModal');
+                }
+
+                // Populate form
+                document.getElementById('editOrthancId').value = orthancId;
+                document.getElementById('editOldPatientId').value = patient.patient_id || '';
+                document.getElementById('editPatientId').value = patient.patient_id || '';
+                document.getElementById('editPatientName').value = patient.patient_name || '';
+                document.getElementById('editBirthDate').value = patient.birth_date || patient.patient_birth_date || '';
+                document.getElementById('editSex').value = patient.sex || patient.patient_sex || '';
+
+                // Show modal
+                new bootstrap.Modal(modal).show();
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function savePatientEdit() {
+            const data = {
+                orthanc_id: document.getElementById('editOrthancId').value,
+                patient_id: document.getElementById('editPatientId').value,
+                old_patient_id: document.getElementById('editOldPatientId').value,
+                patient_name: document.getElementById('editPatientName').value,
+                birth_date: document.getElementById('editBirthDate').value,
+                sex: document.getElementById('editSex').value
+            };
+
+            try {
+                const response = await fetch('../api/patient/edit-patient.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('editPatientModal')).hide();
+                    loadPatients(); // Refresh the list
+                } else {
+                    alert('Failed to save: ' + result.error);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Backup patient studies as ZIP
+        async function backupPatient(orthancId, patientName) {
+            if (!confirm(`Download all studies for "${patientName}" as a ZIP file?`)) {
+                return;
+            }
+
+            try {
+                // Get studies for this patient
+                const patient = allPatients.find(p => p.orthanc_id === orthancId);
+                if (!patient) {
+                    alert('Patient not found');
+                    return;
+                }
+
+                // Create backup using Orthanc archive endpoint
+                const response = await fetch('../api/patient/backup-studies.php?action=prepare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ patient_id: patient.patient_id })
+                });
+                const result = await response.json();
+
+                if (result.success && result.download_url) {
+                    // Trigger download
+                    window.location.href = '../api/patient/' + result.download_url;
+                } else {
+                    alert('Backup failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Delete patient and all studies
+        async function deletePatient(orthancId, patientName) {
+            if (!confirm(`⚠️ WARNING: This will permanently delete "${patientName}" and ALL their studies!\n\nThis action cannot be undone. Are you sure?`)) {
+                return;
+            }
+
+            // Double confirmation for safety
+            if (!confirm(`Please confirm again: Delete "${patientName}" and all studies?`)) {
+                return;
+            }
+
+            try {
+                const patient = allPatients.find(p => p.orthanc_id === orthancId);
+                if (!patient) {
+                    alert('Patient not found');
+                    return;
+                }
+
+                // First get the study IDs for this patient
+                const studiesResponse = await fetch(`../api/patient_list_api.php?patient_id=${encodeURIComponent(patient.patient_id)}&get_studies=1`);
+                const studiesData = await studiesResponse.json();
+
+                let studyIds = [];
+                if (studiesData.success && studiesData.studies) {
+                    studyIds = studiesData.studies.map(s => s.orthanc_id);
+                }
+
+                // Delete studies if any exist
+                if (studyIds.length > 0) {
+                    const response = await fetch('../api/patient/delete-studies.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ study_ids: studyIds })
+                    });
+                    const result = await response.json();
+
+                    if (result.success) {
+                        alert(`Successfully deleted patient "${patientName}" and ${result.deleted_count || 0} studies.`);
+                        loadPatients(); // Refresh the list
+                    } else {
+                        alert('Delete failed: ' + (result.error || 'Unknown error'));
+                    }
+                } else {
+                    // No studies, just delete the patient record
+                    const response = await fetch('../api/patient/delete-patient.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ orthanc_id: orthancId })
+                    });
+                    const result = await response.json();
+
+                    if (result.success) {
+                        alert(`Successfully deleted patient "${patientName}".`);
+                        loadPatients();
+                    } else {
+                        alert('Delete failed: ' + (result.error || 'Unknown error'));
+                    }
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
         // Auto-trigger backup check (runs silently in background)
         function autoTriggerBackup() {
             fetch('../api/backup/auto-trigger.php', {
@@ -953,6 +1229,487 @@
         // Check backup status every 30 minutes (1800000 ms)
         autoTriggerBackup(); // Run immediately on page load
         setInterval(autoTriggerBackup, 1800000); // Then every 30 minutes
+
+        // ===== DELETE STUDIES BY AGE =====
+        let deleteMonths = 0;
+
+        async function showDeleteModal(months) {
+            deleteMonths = months;
+
+            // Create modal if it doesn't exist
+            let modal = document.getElementById('deleteStudiesModal');
+            if (!modal) {
+                const modalHtml = `
+                    <div class="modal fade" id="deleteStudiesModal" tabindex="-1">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content bg-dark text-light">
+                                <div class="modal-header border-secondary">
+                                    <h5 class="modal-title"><i class="bi bi-trash text-danger me-2"></i>Delete Studies Older Than <span id="deleteMonthsText"></span> Months</h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="deletePreviewContent">
+                                        <div class="text-center py-4">
+                                            <div class="spinner-border text-primary"></div>
+                                            <p class="mt-2">Loading preview...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer border-secondary">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="button" class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDeleteStudies()" disabled>
+                                        <i class="bi bi-trash me-2"></i>Delete Studies
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                modal = document.getElementById('deleteStudiesModal');
+            }
+
+            document.getElementById('deleteMonthsText').textContent = months;
+            document.getElementById('deletePreviewContent').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2">Loading preview...</p></div>';
+            document.getElementById('confirmDeleteBtn').disabled = true;
+
+            new bootstrap.Modal(modal).show();
+
+            try {
+                const response = await fetch(`../api/patient/delete-studies.php?months=${months}&direction=older`);
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.study_count === 0) {
+                        document.getElementById('deletePreviewContent').innerHTML = '<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>No studies found older than ' + months + ' months</div>';
+                    } else {
+                        document.getElementById('deletePreviewContent').innerHTML = `
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                <strong>${data.study_count} studies</strong> will be permanently deleted (${data.total_size_formatted})
+                            </div>
+                            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-sm table-dark table-striped">
+                                    <thead><tr><th>Patient</th><th>Study</th><th>Date</th><th>Size</th></tr></thead>
+                                    <tbody>
+                                        ${data.studies.map(s => `
+                                            <tr>
+                                                <td>${s.patient_name || 'Unknown'}</td>
+                                                <td>${s.study_description || '-'}</td>
+                                                <td>${s.study_date || '-'}</td>
+                                                <td>${s.size_formatted}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+                        document.getElementById('confirmDeleteBtn').disabled = false;
+                    }
+                } else {
+                    document.getElementById('deletePreviewContent').innerHTML = '<div class="alert alert-danger">Error: ' + data.error + '</div>';
+                }
+            } catch (err) {
+                document.getElementById('deletePreviewContent').innerHTML = '<div class="alert alert-danger">Error loading preview: ' + err.message + '</div>';
+            }
+        }
+
+        async function confirmDeleteStudies() {
+            if (!confirm('Are you ABSOLUTELY sure? This action cannot be undone!')) return;
+
+            document.getElementById('confirmDeleteBtn').disabled = true;
+            document.getElementById('confirmDeleteBtn').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
+
+            try {
+                const response = await fetch('../api/patient/delete-studies.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ months: deleteMonths, direction: 'older' })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    alert(`Successfully deleted ${result.deleted_count} studies.\nFreed space: ${result.freed_space_formatted}`);
+                    bootstrap.Modal.getInstance(document.getElementById('deleteStudiesModal')).hide();
+                    loadPatients();
+                } else {
+                    alert('Delete failed: ' + result.error);
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+
+            document.getElementById('confirmDeleteBtn').disabled = false;
+            document.getElementById('confirmDeleteBtn').innerHTML = '<i class="bi bi-trash me-2"></i>Delete Studies';
+        }
+
+        // ===== BACKUP STUDIES BY AGE =====
+        let backupMonths = 0;
+
+        async function showBackupModal(months) {
+            backupMonths = months;
+
+            // Create modal if it doesn't exist
+            let modal = document.getElementById('backupStudiesModal');
+            if (!modal) {
+                const modalHtml = `
+                    <div class="modal fade" id="backupStudiesModal" tabindex="-1">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content bg-dark text-light">
+                                <div class="modal-header border-secondary">
+                                    <h5 class="modal-title"><i class="bi bi-download text-success me-2"></i>Backup Studies Older Than <span id="backupMonthsText"></span> Months</h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="backupPreviewContent">
+                                        <div class="text-center py-4">
+                                            <div class="spinner-border text-primary"></div>
+                                            <p class="mt-2">Loading preview...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer border-secondary">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="button" class="btn btn-success" id="confirmBackupBtn" onclick="confirmBackupStudies()" disabled>
+                                        <i class="bi bi-download me-2"></i>Download ZIP
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                modal = document.getElementById('backupStudiesModal');
+            }
+
+            document.getElementById('backupMonthsText').textContent = months;
+            document.getElementById('backupPreviewContent').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2">Loading preview...</p></div>';
+            document.getElementById('confirmBackupBtn').disabled = true;
+
+            new bootstrap.Modal(modal).show();
+
+            try {
+                const response = await fetch(`../api/patient/backup-studies.php?action=preview&months=${months}&direction=older`);
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.study_count === 0) {
+                        document.getElementById('backupPreviewContent').innerHTML = '<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>No studies found older than ' + months + ' months</div>';
+                    } else {
+                        document.getElementById('backupPreviewContent').innerHTML = `
+                            <div class="alert alert-info">
+                                <i class="bi bi-archive me-2"></i>
+                                <strong>${data.study_count} studies</strong> will be included in backup (${data.total_size_formatted})
+                            </div>
+                            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-sm table-dark table-striped">
+                                    <thead><tr><th>Patient</th><th>Study</th><th>Date</th><th>Size</th></tr></thead>
+                                    <tbody>
+                                        ${data.studies.map(s => `
+                                            <tr>
+                                                <td>${s.patient_name || 'Unknown'}</td>
+                                                <td>${s.study_description || '-'}</td>
+                                                <td>${s.study_date || '-'}</td>
+                                                <td>${s.size_formatted}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+                        document.getElementById('confirmBackupBtn').disabled = false;
+                    }
+                } else {
+                    document.getElementById('backupPreviewContent').innerHTML = '<div class="alert alert-danger">Error: ' + data.error + '</div>';
+                }
+            } catch (err) {
+                document.getElementById('backupPreviewContent').innerHTML = '<div class="alert alert-danger">Error loading preview: ' + err.message + '</div>';
+            }
+        }
+
+        async function confirmBackupStudies() {
+            document.getElementById('confirmBackupBtn').disabled = true;
+            document.getElementById('confirmBackupBtn').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Preparing...';
+
+            try {
+                const response = await fetch('../api/patient/backup-studies.php?action=prepare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ months: backupMonths, direction: 'older' })
+                });
+                const result = await response.json();
+
+                if (result.success && result.download_url) {
+                    window.location.href = '../api/patient/' + result.download_url;
+                    setTimeout(() => {
+                        bootstrap.Modal.getInstance(document.getElementById('backupStudiesModal')).hide();
+                        document.getElementById('confirmBackupBtn').disabled = false;
+                        document.getElementById('confirmBackupBtn').innerHTML = '<i class="bi bi-download me-2"></i>Download ZIP';
+                    }, 2000);
+                } else {
+                    alert('Backup failed: ' + result.error);
+                    document.getElementById('confirmBackupBtn').disabled = false;
+                    document.getElementById('confirmBackupBtn').innerHTML = '<i class="bi bi-download me-2"></i>Download ZIP';
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+                document.getElementById('confirmBackupBtn').disabled = false;
+                document.getElementById('confirmBackupBtn').innerHTML = '<i class="bi bi-download me-2"></i>Download ZIP';
+            }
+        }
+
+        // ===== UPLOAD STUDIES =====
+        let uploadFiles = [];
+
+        function showUploadModal() {
+            // Create modal if it doesn't exist
+            let modal = document.getElementById('uploadModal');
+            if (!modal) {
+                const modalHtml = `
+                    <div class="modal fade" id="uploadModal" tabindex="-1">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content bg-dark text-light">
+                                <div class="modal-header border-secondary">
+                                    <h5 class="modal-title"><i class="bi bi-cloud-upload text-success me-2"></i>Upload Patient Study</h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="alert alert-info small">
+                                        <i class="bi bi-info-circle me-2"></i>
+                                        <strong>DICOM files:</strong> Patient info is read from the file.<br>
+                                        <strong>JPG/PNG files:</strong> Enter patient details below.
+                                    </div>
+                                    
+                                    <!-- File Selection -->
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">Select Files</label>
+                                        <input type="file" id="uploadFilesInput" class="form-control bg-secondary text-light" 
+                                            multiple accept=".dcm,.DCM,.jpg,.jpeg,.JPG,.JPEG,.png,.PNG,.zip,.ZIP"
+                                            onchange="handleFileSelection(this)">
+                                        <div class="form-text text-muted">Supports DICOM (.dcm), Images (JPG, PNG), and ZIP archives</div>
+                                    </div>
+                                    
+                                    <div id="selectedFilesList" class="mb-3"></div>
+                                    
+                                    <hr class="border-secondary">
+                                    
+                                    <!-- Patient Details (for non-DICOM files) -->
+                                    <h6 class="text-muted mb-3"><i class="bi bi-person me-2"></i>Patient Details (for JPG/PNG only)</h6>
+                                    
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Patient ID <span class="text-danger">*</span></label>
+                                            <input type="text" id="uploadPatientId" class="form-control bg-secondary text-light" 
+                                                placeholder="e.g., PAT001" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Patient Name <span class="text-danger">*</span></label>
+                                            <input type="text" id="uploadPatientName" class="form-control bg-secondary text-light" 
+                                                placeholder="e.g., John Doe" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Birth Date</label>
+                                            <input type="date" id="uploadBirthDate" class="form-control bg-secondary text-light">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Sex</label>
+                                            <select id="uploadSex" class="form-select bg-secondary text-light">
+                                                <option value="">Unknown</option>
+                                                <option value="M">Male</option>
+                                                <option value="F">Female</option>
+                                                <option value="O">Other</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Study Description</label>
+                                            <input type="text" id="uploadStudyDesc" class="form-control bg-secondary text-light" 
+                                                placeholder="e.g., Chest X-Ray">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer border-secondary">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="button" class="btn btn-success" id="confirmUploadBtn" onclick="performUpload()" disabled>
+                                        <i class="bi bi-cloud-upload me-2"></i>Upload Files
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                modal = document.getElementById('uploadModal');
+            }
+
+            // Reset form
+            document.getElementById('uploadFilesInput').value = '';
+            document.getElementById('uploadPatientId').value = '';
+            document.getElementById('uploadPatientName').value = '';
+            document.getElementById('uploadBirthDate').value = '';
+            document.getElementById('uploadSex').value = '';
+            document.getElementById('uploadStudyDesc').value = '';
+            document.getElementById('selectedFilesList').innerHTML = '';
+            document.getElementById('confirmUploadBtn').disabled = true;
+            uploadFiles = [];
+
+            new bootstrap.Modal(modal).show();
+        }
+
+        function handleFileSelection(input) {
+            uploadFiles = Array.from(input.files);
+            const listDiv = document.getElementById('selectedFilesList');
+
+            if (uploadFiles.length === 0) {
+                listDiv.innerHTML = '';
+                document.getElementById('confirmUploadBtn').disabled = true;
+                return;
+            }
+
+            let html = '<div class="alert alert-success"><strong>' + uploadFiles.length + ' file(s) selected:</strong><ul class="mb-0 mt-2">';
+            uploadFiles.forEach(file => {
+                const icon = file.name.toLowerCase().endsWith('.dcm') ? 'bi-file-medical' :
+                    file.name.toLowerCase().endsWith('.zip') ? 'bi-file-zip' : 'bi-file-image';
+                html += `<li><i class="bi ${icon} me-2"></i>${file.name} (${formatFileSize(file.size)})</li>`;
+            });
+            html += '</ul></div>';
+
+            listDiv.innerHTML = html;
+            document.getElementById('confirmUploadBtn').disabled = false;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function performUpload() {
+            if (uploadFiles.length === 0) {
+                alert('Please select files to upload');
+                return;
+            }
+
+            const patientId = document.getElementById('uploadPatientId').value.trim();
+            const patientName = document.getElementById('uploadPatientName').value.trim();
+
+            // Check if any non-DICOM file and no patient info
+            const hasNonDicom = uploadFiles.some(f => !f.name.toLowerCase().endsWith('.dcm'));
+            if (hasNonDicom && (!patientId || !patientName)) {
+                alert('Please enter Patient ID and Name for JPG/PNG files');
+                return;
+            }
+
+            const btn = document.getElementById('confirmUploadBtn');
+            btn.disabled = true;
+
+            // Add progress bar
+            const listDiv = document.getElementById('selectedFilesList');
+            listDiv.innerHTML = `
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span id="uploadProgressText">Uploading...</span>
+                        <span id="uploadProgressPercent">0%</span>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div id="uploadProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                            role="progressbar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div id="uploadStatusList" class="small" style="max-height: 150px; overflow-y: auto;"></div>
+            `;
+
+            let successCount = 0;
+            let errorCount = 0;
+            let errorMessages = [];
+            const totalFiles = uploadFiles.length;
+
+            try {
+                for (let i = 0; i < uploadFiles.length; i++) {
+                    const file = uploadFiles[i];
+                    const progress = Math.round(((i) / totalFiles) * 100);
+
+                    // Update progress bar
+                    document.getElementById('uploadProgressBar').style.width = progress + '%';
+                    document.getElementById('uploadProgressPercent').textContent = progress + '%';
+                    document.getElementById('uploadProgressText').textContent = `Uploading ${i + 1} of ${totalFiles}: ${file.name}`;
+
+                    // Add status line
+                    const statusDiv = document.getElementById('uploadStatusList');
+                    statusDiv.innerHTML += `<div id="file-status-${i}"><i class="bi bi-arrow-right-circle text-info me-1"></i> ${file.name}...</div>`;
+                    statusDiv.scrollTop = statusDiv.scrollHeight;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('patient_id', patientId || 'PAT_' + Date.now());
+                    formData.append('patient_name', patientName || 'Unknown Patient');
+                    formData.append('birth_date', document.getElementById('uploadBirthDate').value);
+                    formData.append('sex', document.getElementById('uploadSex').value);
+                    formData.append('study_description', document.getElementById('uploadStudyDesc').value || 'Uploaded Study');
+
+                    try {
+                        const response = await fetch('../api/patient/upload-study.php', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const text = await response.text();
+                        let result;
+                        try {
+                            result = JSON.parse(text);
+                        } catch (e) {
+                            console.error('Invalid JSON response:', text);
+                            result = { success: false, error: 'Server returned invalid response' };
+                        }
+
+                        const statusEl = document.getElementById(`file-status-${i}`);
+                        if (result.success) {
+                            successCount++;
+                            statusEl.innerHTML = `<i class="bi bi-check-circle text-success me-1"></i> ${file.name} - OK`;
+                        } else {
+                            errorCount++;
+                            const errorMsg = result.error || 'Unknown error';
+                            errorMessages.push(`${file.name}: ${errorMsg}`);
+                            statusEl.innerHTML = `<i class="bi bi-x-circle text-danger me-1"></i> ${file.name} - ${errorMsg}`;
+                            console.error('Upload error:', result);
+                        }
+                    } catch (err) {
+                        errorCount++;
+                        errorMessages.push(`${file.name}: ${err.message}`);
+                        const statusEl = document.getElementById(`file-status-${i}`);
+                        statusEl.innerHTML = `<i class="bi bi-x-circle text-danger me-1"></i> ${file.name} - ${err.message}`;
+                        console.error('Upload error:', err);
+                    }
+                }
+
+                // Final progress
+                document.getElementById('uploadProgressBar').style.width = '100%';
+                document.getElementById('uploadProgressPercent').textContent = '100%';
+                document.getElementById('uploadProgressText').textContent = 'Upload complete!';
+
+                // Wait a moment then show result
+                await new Promise(r => setTimeout(r, 500));
+
+                if (successCount > 0) {
+                    let msg = `Successfully uploaded ${successCount} file(s)`;
+                    if (errorCount > 0) {
+                        msg += `\n\n${errorCount} file(s) failed:\n` + errorMessages.join('\n');
+                    }
+                    alert(msg);
+                    bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
+                    loadPatients(); // Refresh list
+                } else {
+                    alert('All uploads failed:\n\n' + errorMessages.join('\n'));
+                }
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>Upload Files';
+        }
     </script>
 </body>
 
