@@ -169,7 +169,7 @@ if (DEBUG_MODE || APP_ENV === 'development') {
     error_reporting(E_ALL);
     ini_set('display_errors', 1);
 } else {
-    error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
+    error_reporting(error_level: E_ALL & ~E_DEPRECATED & ~E_STRICT);
     ini_set('display_errors', 0);
     ini_set('log_errors', 1);
     ini_set('error_log', LOG_PATH . '/php_errors.log');
