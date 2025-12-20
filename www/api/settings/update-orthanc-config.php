@@ -24,6 +24,30 @@ if (!isAdmin()) {
     exit;
 }
 
+$db = getDbConnection();
+
+// Check if Private Settings 2FA is enabled and verified
+$stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'private_settings_2fa_enabled' LIMIT 1");
+$stmt->execute();
+$res = $stmt->get_result();
+$row = $res->fetch_assoc();
+$is2FAEnabled = ($row && $row['setting_value'] === '1');
+$stmt->close();
+
+if ($is2FAEnabled) {
+    // Check if session is verified
+    $verified = isset($_SESSION['private_settings_2fa_verified']) && 
+                $_SESSION['private_settings_2fa_verified'] === true &&
+                isset($_SESSION['private_settings_2fa_time']) &&
+                (time() - $_SESSION['private_settings_2fa_time']) < 900;
+                
+    if (!$verified) {
+         http_response_code(403);
+         echo json_encode(['success' => false, 'error' => '2FA verification required']);
+         exit;
+    }
+}
+
 try {
     $input = json_decode(file_get_contents('php://input'), true);
     

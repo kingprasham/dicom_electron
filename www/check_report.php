@@ -33,9 +33,8 @@ try {
         exit;
     }
 
-    // Get database connection
-    require_once __DIR__ . '/includes/db.php';
-    $db = getDBConnection();
+    // Get database connection (from config.php already included above)
+    $db = getDbConnection();
 
     $reportExists = false;
     $reportData = null;

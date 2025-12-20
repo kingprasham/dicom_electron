@@ -404,6 +404,19 @@
         </div>
     </nav>
 
+    <!-- License Expiry Warning Banner -->
+    <div id="licenseWarningBanner" class="alert alert-warning alert-dismissible fade show mx-4 mb-3"
+        style="display: none;">
+        <div class="d-flex align-items-center justify-content-between">
+            <div>
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>License Expiring Soon!</strong>
+                <span id="licenseWarningText">Your license will expire in X days.</span>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    </div>
+
     <div class="container">
         <!-- Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -541,12 +554,83 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/js/app-tour.js"></script>
     <script>
         let currentFilters = {};
         let searchTimeout = null;
         let allPatients = [];
         let viewMode = localStorage.getItem('patientsViewMode') || 'list'; // 'grid' or 'list'
         let sortBy = localStorage.getItem('patientsSortBy') || 'recent'; // 'recent', 'name', 'id', 'studies'
+
+        // Tour steps for patients page
+        const patientsTourSteps = [
+            {
+                title: 'Welcome to the Patient List!',
+                icon: 'bi-hand-wave',
+                content: `
+                    <p>This is your main dashboard where you can view and manage all patients and their studies.</p>
+                    <p>Let's take a quick tour of the key features. You can skip this tour anytime.</p>
+                `,
+            },
+            {
+                element: '.search-section',
+                title: 'Search & Filter',
+                icon: 'bi-search',
+                content: `
+                    <p>Use this section to quickly find patients by name, ID, or filter by date range.</p>
+                    <p>The search is instant - just start typing!</p>
+                `
+            },
+            {
+                element: '#gridViewBtn',
+                title: 'View Options',
+                icon: 'bi-grid-3x3-gap-fill',
+                content: `
+                    <p>Switch between Grid and List view to see patients in your preferred layout.</p>
+                    <p>Your preference is saved automatically.</p>
+                `,
+                position: 'bottom'
+            },
+            {
+                element: '#refreshBtn',
+                title: 'Sync with Server',
+                icon: 'bi-arrow-clockwise',
+                content: `
+                    <p>Click this to sync with your PACS/Orthanc server and fetch the latest studies.</p>
+                `
+            },
+            {
+                element: '#adminMenu',
+                title: 'Settings & Configuration',
+                icon: 'bi-gear',
+                content: `
+                    <p>Access hospital settings, print configuration, and admin options here.</p>
+                    <p><strong>Note:</strong> Some settings are protected by 2FA for security.</p>
+                `
+            },
+            {
+                title: 'Opening a Study',
+                icon: 'bi-eye',
+                content: `
+                    <p>Click on any patient or study to open the DICOM Viewer.</p>
+                    <p>In the viewer, you can:</p>
+                    <ul>
+                        <li>View images with window/level adjustments</li>
+                        <li>Make measurements and annotations</li>
+                        <li>Create medical reports</li>
+                        <li>Print studies to DICOM printers</li>
+                    </ul>
+                `
+            },
+            {
+                title: 'Tour Complete!',
+                icon: 'bi-check-circle-fill',
+                content: `
+                    <p>You're all set! If you need help later, you can restart this tour from Settings.</p>
+                    <p>Happy viewing! 🎉</p>
+                `
+            }
+        ];
 
         // Check authentication on load
         window.addEventListener('DOMContentLoaded', async () => {
@@ -558,7 +642,46 @@
 
             loadPatients();
             setupEventListeners();
+
+            // Check if first-time setup is required (for admins)
+            const setupStatus = await checkSetupRequired();
+
+            // If setup is required, the function will redirect to setup.php
+            // Don't start tour if we're being redirected
+            if (setupStatus.setupRequired && setupStatus.isAdmin) {
+                return; // Stop here, redirect is happening
+            }
+
+            // Start tour if coming from license activation or setup wizard
+            // The tour=1 parameter is only added by license/activate.php or setup.php
+            if (window.location.search.includes('tour=1') || window.location.search.includes('start_tour=1')) {
+                // Clear the fullTourSkipped flag since this is a fresh license activation
+                localStorage.removeItem('fullTourSkipped');
+                localStorage.removeItem('patientsTourCompleted');
+                localStorage.removeItem('studiesTourCompleted');
+                localStorage.removeItem('viewerTourCompleted');
+                localStorage.removeItem('fullTourCompleted');
+                setTimeout(() => startAppTour(), 1000);
+            }
         });
+
+        async function checkSetupRequired() {
+            try {
+                const response = await fetch('../api/settings/check-setup.php');
+                const data = await response.json();
+
+                if (data.setupRequired && data.isAdmin) {
+                    // Redirect to setup wizard
+                    window.location.href = '../setup.php';
+                    return data;
+                }
+
+                return data;
+            } catch (e) {
+                console.warn('Could not check setup status:', e);
+                return { setupComplete: true };
+            }
+        }
 
         function setupEventListeners() {
             // Quick search with debounce
@@ -673,6 +796,127 @@
             } catch (error) {
                 return false;
             }
+        }
+
+        // Check license expiry and show warning if needed
+        async function checkLicenseExpiry() {
+            try {
+                const response = await fetch('../api/license/validate.php');
+                const data = await response.json();
+
+                if (data.success && data.license && data.license.valid) {
+                    const daysRemaining = data.license.days_remaining;
+
+                    // Show warning if 15 days or less remaining
+                    if (daysRemaining !== null && daysRemaining <= 15 && daysRemaining >= 0) {
+                        const banner = document.getElementById('licenseWarningBanner');
+                        const text = document.getElementById('licenseWarningText');
+
+                        if (daysRemaining === 0) {
+                            text.textContent = 'Your license expires today! Please renew immediately.';
+                        } else if (daysRemaining === 1) {
+                            text.textContent = 'Your license expires tomorrow! Please renew soon.';
+                        } else {
+                            text.textContent = `Your license will expire in ${daysRemaining} days. Please renew to avoid service interruption.`;
+                        }
+
+                        banner.style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('License check error:', error);
+            }
+        }
+
+        // Call license check on page load
+        checkLicenseExpiry();
+
+        // Start the interactive tour
+        function startAppTour() {
+            window.appTour = new AppTour({
+                onComplete: () => {
+                    // Mark patients tour as completed
+                    localStorage.setItem('patientsTourCompleted', 'true');
+
+                    // Check if this is part of multi-page tour (full tutorial)
+                    if (window.location.search.includes('tour=1')) {
+                        // Show option to continue to Studies page
+                        showTourContinueModal();
+                    } else {
+                        // Single page tour, just clean URL
+                        const url = new URL(window.location);
+                        url.searchParams.delete('tour');
+                        url.searchParams.delete('start_tour');
+                        window.history.replaceState({}, '', url);
+                    }
+                },
+                onSkip: () => {
+                    // Mark entire tour as skipped
+                    localStorage.setItem('patientsTourCompleted', 'true');
+                    localStorage.setItem('fullTourSkipped', 'true');
+                    // Remove tour param from URL
+                    const url = new URL(window.location);
+                    url.searchParams.delete('tour');
+                    url.searchParams.delete('start_tour');
+                    window.history.replaceState({}, '', url);
+                }
+            });
+            window.appTour.setSteps(patientsTourSteps).start();
+        }
+
+        // Show modal to continue tour to Studies page
+        function showTourContinueModal() {
+            const modalHTML = `
+                <div class="modal fade" id="tourContinueModal" tabindex="-1" data-bs-backdrop="static">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border: 2px solid #0d6efd;">
+                            <div class="modal-header border-0 pb-0">
+                                <h5 class="modal-title text-white">
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    Patients Page Complete!
+                                </h5>
+                            </div>
+                            <div class="modal-body text-center py-4">
+                                <i class="bi bi-arrow-right-circle-fill text-primary" style="font-size: 4rem;"></i>
+                                <h4 class="text-white mt-3">Ready to continue?</h4>
+                                <p class="text-muted">Next, we'll show you how to browse Studies and view medical images.</p>
+                            </div>
+                            <div class="modal-footer border-0 justify-content-center gap-3">
+                                <button type="button" class="btn btn-outline-secondary" onclick="skipTutorial()">
+                                    <i class="bi bi-x-lg me-2"></i>Skip Tutorial
+                                </button>
+                                <button type="button" class="btn btn-primary btn-lg" onclick="continueTourToStudies()">
+                                    <i class="bi bi-arrow-right me-2"></i>Continue to Studies
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            new bootstrap.Modal(document.getElementById('tourContinueModal')).show();
+        }
+
+        function continueTourToStudies() {
+            // Get a patient to navigate to studies (use first patient if available)
+            const firstPatient = document.querySelector('[onclick*="viewPatientStudies"]');
+            if (firstPatient) {
+                const patientId = firstPatient.getAttribute('onclick')?.match(/viewPatientStudies\('([^']+)'\)/)?.[1];
+                if (patientId) {
+                    window.location.href = `studies.html?patient_id=${encodeURIComponent(patientId)}&tour=1`;
+                    return;
+                }
+            }
+            // Fallback - go to studies without patient filter but with tour
+            window.location.href = 'studies.html?tour=1';
+        }
+
+        function skipTutorial() {
+            localStorage.setItem('fullTourSkipped', 'true');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('tourContinueModal'));
+            if (modal) modal.hide();
+            document.getElementById('tourContinueModal')?.remove();
         }
 
         async function syncAndLoad() {
