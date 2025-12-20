@@ -8,7 +8,10 @@
       "Bash(git checkout:*)",
       "Bash(ls:*)",
       "Bash(git clean:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(mkdir:*)",
+      "Bash(php -r:*)",
+      "Bash(dir:*)"
     ]
   }
 }

@@ -103,7 +103,7 @@ function loginUser($username, $password) {
         // Prepare statement to prevent SQL injection
         // Check both username and email for flexibility
         $stmt = $db->prepare("
-            SELECT id, username, password_hash, full_name, email, role, is_active
+            SELECT id, username, password_hash, full_name, email, role, is_active, is_super_admin
             FROM users
             WHERE (username = ? OR email = ?) AND is_active = 1
         ");
@@ -130,6 +130,7 @@ function loginUser($username, $password) {
                 $_SESSION['full_name'] = $user['full_name'];
                 $_SESSION['email'] = $user['email'];
                 $_SESSION['role'] = $user['role'];
+                $_SESSION['is_super_admin'] = (bool)($user['is_super_admin'] ?? false);
                 $_SESSION['last_activity'] = time();
 
                 // DEBUG: Verify session was set
@@ -220,7 +221,7 @@ function loginUserWith2FA($username, $password) {
         // Check both username and email for flexibility
         // Also fetch 2FA columns
         $stmt = $db->prepare("
-            SELECT id, username, password_hash, full_name, email, role, is_active, totp_enabled, totp_secret
+            SELECT id, username, password_hash, full_name, email, role, is_active, is_super_admin, totp_enabled, totp_secret
             FROM users
             WHERE (username = ? OR email = ?) AND is_active = 1
         ");
@@ -244,7 +245,8 @@ function loginUserWith2FA($username, $password) {
                         'username' => $user['username'],
                         'full_name' => $user['full_name'],
                         'email' => $user['email'],
-                        'role' => $user['role']
+                        'role' => $user['role'],
+                        'is_super_admin' => (bool)($user['is_super_admin'] ?? false)
                     ];
                     
                     logMessage("User {$user['username']} entered credentials, awaiting 2FA", 'info', 'auth.log');
@@ -261,6 +263,7 @@ function loginUserWith2FA($username, $password) {
                 $_SESSION['full_name'] = $user['full_name'];
                 $_SESSION['email'] = $user['email'];
                 $_SESSION['role'] = $user['role'];
+                $_SESSION['is_super_admin'] = (bool)($user['is_super_admin'] ?? false);
                 $_SESSION['last_activity'] = time();
 
                 // Update last login time

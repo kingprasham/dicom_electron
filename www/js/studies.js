@@ -48,9 +48,20 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
     loadStudies(patientId);
 
-    // Start tour if coming from patients page tour (only if not already skipped)
+    // Start tour if coming from patients page tour (linked tour with tour=1 in URL)
+    // This is blocked by fullTourSkipped since it's part of the multi-page tour chain
     if (urlParams.get('tour') === '1' && !localStorage.getItem('fullTourSkipped')) {
+        console.log('[Studies Tour] Starting tour (tour=1 in URL, linked from patients)');
         setTimeout(() => startStudiesTour(), 1500);
+    }
+    // Auto-start tour on FIRST VISIT to this page
+    // This is ONLY blocked by studiesTourCompleted, NOT by fullTourSkipped
+    // This ensures the tour runs at least once when visiting the page for the first time
+    else if (!localStorage.getItem('studiesTourCompleted')) {
+        console.log('[Studies Tour] Starting tour (first visit - no studiesTourCompleted)');
+        setTimeout(() => startStudiesTour(), 1500);
+    } else {
+        console.log('[Studies Tour] Tour NOT starting - already completed');
     }
 });
 
@@ -1156,8 +1167,9 @@ function startStudiesTour() {
             showViewerContinueModal();
         },
         onSkip: () => {
+            // Mark THIS tour as completed when skipped, not global skip
+            // This allows other page tours to still run
             localStorage.setItem('studiesTourCompleted', 'true');
-            localStorage.setItem('fullTourSkipped', 'true');
             // Clean URL
             const url = new URL(window.location);
             url.searchParams.delete('tour');

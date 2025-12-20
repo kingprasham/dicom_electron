@@ -24,6 +24,9 @@ if (!$result || !$result['is_super_admin']) {
     exit;
 }
 
+// Set session flag for other pages to use
+$_SESSION['is_super_admin'] = true;
+
 $licenseManager = new LicenseManager();
 $licenses = $licenseManager->getAllLicenses();
 
@@ -161,6 +164,55 @@ $recentActivity = ActivityLogger::getActivity(20);
                     <h2 class="text-info"><?= $totalActivations ?></h2>
                     <p class="text-muted mb-0">Active Machines</p>
                 </div>
+            </div>
+        </div>
+
+        <!-- Quick Access Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3">
+                <a href="hospitals.php" class="text-decoration-none">
+                    <div class="stat-card" style="cursor: pointer;">
+                        <i class="bi bi-hospital text-purple display-6 mb-2" style="color: #8b5cf6;"></i>
+                        <h5 class="text-white">All Hospitals</h5>
+                        <p class="text-muted mb-0 small">View & manage all installations</p>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-3 mb-3">
+                <a href="print-analytics.php" class="text-decoration-none">
+                    <div class="stat-card" style="cursor: pointer;">
+                        <i class="bi bi-printer-fill text-primary display-6 mb-2"></i>
+                        <h5 class="text-white">Print Analytics</h5>
+                        <p class="text-muted mb-0 small">Track prints, revenue & billing</p>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-4 mb-3">
+                <a href="billing.php" class="text-decoration-none">
+                    <div class="stat-card" style="cursor: pointer;">
+                        <i class="bi bi-receipt text-success display-6 mb-2"></i>
+                        <h5 class="text-white">Billing & Invoices</h5>
+                        <p class="text-muted mb-0 small">Generate & manage invoices</p>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-4 mb-3">
+                <a href="<?= BASE_PATH ?>/admin/location-management.php" class="text-decoration-none">
+                    <div class="stat-card" style="cursor: pointer;">
+                        <i class="bi bi-geo-alt-fill text-warning display-6 mb-2"></i>
+                        <h5 class="text-white">Location Management</h5>
+                        <p class="text-muted mb-0 small">Manage rooms & machines</p>
+                    </div>
+                </a>
+            </div>
+            <div class="col-md-3 mb-3">
+                <a href="print-pricing.php" class="text-decoration-none">
+                    <div class="stat-card" style="cursor: pointer;">
+                        <i class="bi bi-currency-rupee text-info display-6 mb-2"></i>
+                        <h5 class="text-white">Print Pricing</h5>
+                        <p class="text-muted mb-0 small">Configure prices per paper size</p>
+                    </div>
+                </a>
             </div>
         </div>
 

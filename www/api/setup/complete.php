@@ -223,6 +223,32 @@ try {
             $stmt->execute();
             $stmt->close();
         }
+
+        // IMPORTANT: Also save to monitored_paths table (used by folder-config.php and sync API)
+        // First ensure the table exists
+        $db->query("
+            CREATE TABLE IF NOT EXISTS monitored_paths (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                path VARCHAR(1000) NOT NULL,
+                name VARCHAR(255) DEFAULT NULL,
+                is_active TINYINT(1) DEFAULT 1,
+                last_checked DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_path (path(255))
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        // Add each path to monitored_paths table
+        if (!empty($monitoring['paths']) && is_array($monitoring['paths'])) {
+            foreach ($monitoring['paths'] as $path) {
+                $pathName = basename($path);
+                $stmt = $db->prepare("INSERT INTO monitored_paths (path, name, is_active) VALUES (?, ?, 1)
+                                      ON DUPLICATE KEY UPDATE name = VALUES(name), is_active = 1");
+                $stmt->bind_param("ss", $path, $pathName);
+                $stmt->execute();
+                $stmt->close();
+            }
+        }
     }
 
     // 6. Mark setup as complete in both tables

@@ -417,6 +417,44 @@
         </div>
     </div>
 
+    <!-- DICOM Folder Sync Progress Bar -->
+    <div id="syncProgressBanner" class="mx-4 mb-3" style="display: none;">
+        <div class="alert alert-info mb-0"
+            style="background: rgba(13, 110, 253, 0.15); border: 1px solid rgba(13, 110, 253, 0.3);">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="d-flex align-items-center">
+                    <span class="spinner-border spinner-border-sm me-2" id="syncSpinner" role="status"></span>
+                    <strong id="syncStatusTitle">Syncing DICOM Files...</strong>
+                </div>
+                <div>
+                    <span class="badge bg-primary me-2" id="syncProgressPercent">0%</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="minimizeSyncBtn"
+                        onclick="minimizeSyncProgress()">
+                        <i class="bi bi-dash"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="progress" style="height: 8px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                    id="syncProgressBar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                </div>
+            </div>
+            <div class="d-flex justify-content-between mt-2">
+                <small id="syncStatusText" class="text-muted">Scanning folders...</small>
+                <small id="syncStats" class="text-muted"></small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Minimized Sync Indicator -->
+    <div id="syncMiniBadge" class="mx-4 mb-2" style="display: none;">
+        <button class="btn btn-sm btn-outline-info" onclick="maximizeSyncProgress()">
+            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+            <span id="miniBadgeText">Syncing... 0%</span>
+            <i class="bi bi-arrows-angle-expand ms-1"></i>
+        </button>
+    </div>
+
     <div class="container">
         <!-- Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -851,9 +889,9 @@
                     }
                 },
                 onSkip: () => {
-                    // Mark entire tour as skipped
+                    // Mark THIS tour as completed when skipped, not global skip
+                    // This allows other page tours (studies, viewer) to still run
                     localStorage.setItem('patientsTourCompleted', 'true');
-                    localStorage.setItem('fullTourSkipped', 'true');
                     // Remove tour param from URL
                     const url = new URL(window.location);
                     url.searchParams.delete('tour');
@@ -1954,6 +1992,262 @@
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>Upload Files';
         }
+
+        // ========== Background Folder Sync Functions ==========
+        let syncInProgress = false;
+        let syncBatchId = null;
+        let syncPollInterval = null;
+        let backgroundSyncInterval = null;
+        const BACKGROUND_SYNC_INTERVAL = 30000; // Check every 30 seconds
+
+        // Check if this is the first sync (show progress bar) or subsequent (silent)
+        function isFirstSync() {
+            return !localStorage.getItem('initialSyncCompleted');
+        }
+
+        function markInitialSyncComplete() {
+            localStorage.setItem('initialSyncCompleted', 'true');
+        }
+
+        function minimizeSyncProgress() {
+            document.getElementById('syncProgressBanner').style.display = 'none';
+            document.getElementById('syncMiniBadge').style.display = 'block';
+        }
+
+        function maximizeSyncProgress() {
+            document.getElementById('syncProgressBanner').style.display = 'block';
+            document.getElementById('syncMiniBadge').style.display = 'none';
+        }
+
+        function updateSyncProgress(data, silent = false) {
+            // If silent mode, don't update UI elements
+            if (silent) {
+                if (data.status === 'completed' && data.imported_count > 0) {
+                    // Silently refresh patient list when new files are imported
+                    loadPatients();
+                    console.log(`Background sync: Imported ${data.imported_count} new files`);
+                }
+                syncInProgress = false;
+                return;
+            }
+
+            const progressBar = document.getElementById('syncProgressBar');
+            const progressPercent = document.getElementById('syncProgressPercent');
+            const statusText = document.getElementById('syncStatusText');
+            const syncStats = document.getElementById('syncStats');
+            const syncTitle = document.getElementById('syncStatusTitle');
+            const miniBadgeText = document.getElementById('miniBadgeText');
+
+            const percent = Math.round(data.progress || 0);
+            progressBar.style.width = percent + '%';
+            progressBar.setAttribute('aria-valuenow', percent);
+            progressPercent.textContent = percent + '%';
+            miniBadgeText.textContent = `Syncing... ${percent}%`;
+
+            if (data.message) {
+                statusText.textContent = data.message;
+            }
+
+            if (data.imported_count !== undefined) {
+                syncStats.textContent = `Imported: ${data.imported_count} | Errors: ${data.error_count || 0}`;
+            }
+
+            if (data.status === 'completed') {
+                syncTitle.textContent = 'Sync Complete!';
+                document.getElementById('syncSpinner').style.display = 'none';
+                progressBar.classList.remove('progress-bar-animated');
+                progressBar.classList.add('bg-success');
+                miniBadgeText.textContent = 'Sync Complete!';
+
+                // Mark initial sync as complete
+                markInitialSyncComplete();
+
+                // Hide after 3 seconds and refresh
+                setTimeout(() => {
+                    document.getElementById('syncProgressBanner').style.display = 'none';
+                    document.getElementById('syncMiniBadge').style.display = 'none';
+                    loadPatients(); // Refresh patient list
+                }, 3000);
+
+                syncInProgress = false;
+                clearInterval(syncPollInterval);
+
+                // Start background sync interval for future syncs
+                startBackgroundSyncInterval();
+            } else if (data.status === 'error') {
+                syncTitle.textContent = 'Sync Error';
+                document.getElementById('syncSpinner').style.display = 'none';
+                progressBar.classList.remove('progress-bar-animated');
+                progressBar.classList.add('bg-danger');
+                syncInProgress = false;
+                clearInterval(syncPollInterval);
+
+                // Hide error after 5 seconds
+                setTimeout(() => {
+                    document.getElementById('syncProgressBanner').style.display = 'none';
+                    document.getElementById('syncMiniBadge').style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        async function startBackgroundSync(silent = false) {
+            if (syncInProgress) return;
+
+            try {
+                // First check if there are monitored paths configured
+                const pathsResponse = await fetch('../api/hospital-config/auto-sync.php?action=get_all_paths');
+                const pathsData = await pathsResponse.json();
+
+                if (!pathsData.success || !pathsData.paths || pathsData.paths.length === 0) {
+                    console.log('No monitored paths configured, skipping auto-sync');
+                    return;
+                }
+
+                // Check for new folders first (detects new subfolders added to monitored paths)
+                try {
+                    const folderCheckResponse = await fetch('../api/hospital-config/auto-sync.php?action=check_and_sync');
+                    const folderCheckData = await folderCheckResponse.json();
+                    if (folderCheckData.success && folderCheckData.total_new > 0) {
+                        console.log(`Detected ${folderCheckData.total_new} new folders`);
+                    }
+                } catch (e) {
+                    console.warn('Folder check failed:', e);
+                }
+
+                // Check if there are new files to sync
+                const checkResponse = await fetch('../api/hospital-config/auto-sync.php?action=sync_missing_files');
+                const checkData = await checkResponse.json();
+
+                if (!checkData.success) {
+                    // Handle specific error cases
+                    if (checkData.error && checkData.error.includes('No monitored paths')) {
+                        console.log('No monitored paths configured');
+                        return;
+                    }
+                    console.warn('File scan failed:', checkData.error);
+                    return;
+                }
+
+                if (checkData.new_files === 0) {
+                    console.log('No new files to sync');
+                    // Even if no new files, still refresh patient list periodically
+                    if (!silent && isFirstSync()) {
+                        markInitialSyncComplete();
+                        loadPatients();
+                    }
+                    return;
+                }
+
+                console.log(`Found ${checkData.new_files} files to import`);
+                syncInProgress = true;
+
+                // Only show progress UI if not silent mode
+                if (!silent) {
+                    document.getElementById('syncProgressBanner').style.display = 'block';
+                    document.getElementById('syncMiniBadge').style.display = 'none';
+                    document.getElementById('syncSpinner').style.display = '';
+                    document.getElementById('syncProgressBar').classList.remove('bg-success', 'bg-danger');
+                    document.getElementById('syncProgressBar').classList.add('progress-bar-animated');
+                    document.getElementById('syncStatusTitle').textContent = 'Syncing DICOM Files...';
+
+                    updateSyncProgress({
+                        progress: 10,
+                        message: `Found ${checkData.new_files} files to import...`,
+                        status: 'scanning'
+                    });
+                }
+
+                // Start the import
+                const importResponse = await fetch('../api/hospital-config/auto-sync.php?action=import_missing_files');
+                const importData = await importResponse.json();
+
+                if (importData.success) {
+                    let statusMessage = `Imported ${importData.imported} files.`;
+                    if (importData.skipped > 0) {
+                        statusMessage += ` ${importData.skipped} already imported.`;
+                    }
+                    if (importData.errors > 0) {
+                        statusMessage += ` ${importData.errors} errors.`;
+                        if (importData.error_messages && importData.error_messages.length > 0) {
+                            console.warn('Import errors:', importData.error_messages);
+                            if (!silent) {
+                                // Show first error in UI
+                                statusMessage += ` (${importData.error_messages[0]})`;
+                            }
+                        }
+                    }
+
+                    // Determine final status
+                    let finalStatus = 'completed';
+                    if (importData.imported === 0 && importData.errors > 0) {
+                        finalStatus = 'error';
+                    } else if (importData.errors > 0) {
+                        finalStatus = 'completed'; // Partial success
+                    }
+
+                    updateSyncProgress({
+                        progress: 100,
+                        message: statusMessage,
+                        imported_count: importData.imported,
+                        error_count: importData.errors,
+                        status: finalStatus
+                    }, silent);
+                } else {
+                    const errorMsg = importData.error || 'Unknown error';
+                    console.error('Sync failed:', errorMsg);
+
+                    if (!silent) {
+                        updateSyncProgress({
+                            progress: 0,
+                            message: errorMsg,
+                            status: 'error'
+                        });
+
+                        if (errorMsg.includes('Orthanc')) {
+                            setTimeout(() => {
+                                alert('DICOM Sync Failed:\n\n' + errorMsg + '\n\nPlease ensure Orthanc server is running.');
+                            }, 500);
+                        }
+                    } else {
+                        syncInProgress = false;
+                    }
+                }
+
+            } catch (error) {
+                console.error('Background sync error:', error);
+                syncInProgress = false;
+                if (!silent) {
+                    updateSyncProgress({
+                        progress: 0,
+                        message: 'Sync failed: ' + error.message,
+                        status: 'error'
+                    });
+                }
+            }
+        }
+
+        // Start periodic background sync (silent mode)
+        function startBackgroundSyncInterval() {
+            if (backgroundSyncInterval) return; // Already running
+
+            backgroundSyncInterval = setInterval(() => {
+                startBackgroundSync(true); // Silent mode
+            }, BACKGROUND_SYNC_INTERVAL);
+
+            console.log('Background sync interval started (every 30 seconds)');
+        }
+
+        // Initial sync on page load
+        setTimeout(() => {
+            if (isFirstSync()) {
+                // First time - show progress bar
+                startBackgroundSync(false);
+            } else {
+                // Subsequent visits - silent sync and start interval
+                startBackgroundSync(true);
+                startBackgroundSyncInterval();
+            }
+        }, 2000);
     </script>
 </body>
 

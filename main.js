@@ -157,6 +157,15 @@ function createMainWindow() {
         mainWindow = null;
     });
 
+    // FIX: Handle window focus to restore input field interactivity
+    // This fixes the Electron bug where inputs become unclickable after focus loss
+    mainWindow.on('focus', () => {
+        // Force webContents to focus, which restores input interactivity
+        if (mainWindow && mainWindow.webContents) {
+            mainWindow.webContents.focus();
+        }
+    });
+
     // Handle external links
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('http://localhost')) {
@@ -262,6 +271,38 @@ async function checkMySQL() {
 }
 
 /**
+ * Check if setup wizard has been completed
+ */
+async function checkSetupStatus() {
+    return new Promise((resolve, reject) => {
+        const req = http.request({
+            host: 'localhost',
+            port: PHP_PORT,
+            path: '/api/setup/status.php',
+            method: 'GET',
+            timeout: 5000
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    resolve(json);
+                } catch (e) {
+                    reject(new Error('Invalid JSON response'));
+                }
+            });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('Timeout'));
+        });
+        req.end();
+    });
+}
+
+/**
  * Main application startup
  */
 async function startApp() {
@@ -307,7 +348,9 @@ async function startApp() {
         // Create main window
         createMainWindow();
 
-        // Load the app
+        // Always start with login page
+        // Login page has two tabs: Admin Login (for super admin) and License Key (for new activations)
+        console.log('[Electron] Loading login page...');
         mainWindow.loadURL(`${APP_URL}/login.php`);
 
     } catch (error) {

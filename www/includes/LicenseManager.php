@@ -207,6 +207,37 @@ class LicenseManager {
     }
     
     /**
+     * Get license by ID
+     */
+    public function getLicenseById(int $id): ?array {
+        $stmt = $this->db->prepare("
+            SELECT l.*, 
+                   COUNT(DISTINCT la.id) as active_activations,
+                   DATEDIFF(l.valid_until, CURDATE()) as days_remaining,
+                   CASE 
+                       WHEN l.is_active = 0 THEN 'revoked'
+                       WHEN l.valid_until IS NOT NULL AND l.valid_until < CURDATE() THEN 'expired'
+                       ELSE 'active'
+                   END as status
+            FROM licenses l
+            LEFT JOIN license_activations la ON l.id = la.license_id AND la.is_active = 1
+            WHERE l.id = ?
+            GROUP BY l.id
+        ");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $license = $result->fetch_assoc();
+        $stmt->close();
+        
+        if ($license) {
+            $license['license_key_display'] = $this->formatKeyForDisplay($license['license_key']);
+        }
+        
+        return $license ?: null;
+    }
+    
+    /**
      * Validate license (full check)
      */
     public function validateLicense(string $key, string $machineId = null): array {
@@ -397,8 +428,25 @@ class LicenseManager {
      * Get local installation license
      */
     public function getLocalLicense(): ?array {
+        // Ensure table exists
+        $this->db->query("
+            CREATE TABLE IF NOT EXISTS installation_license (
+                id INT PRIMARY KEY DEFAULT 1,
+                license_key VARCHAR(32),
+                machine_id VARCHAR(64),
+                license_type VARCHAR(20),
+                activated_at DATETIME,
+                last_online_check DATETIME,
+                cached_valid_until DATE,
+                cached_is_active TINYINT(1) DEFAULT 1,
+                grace_period_start DATETIME
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+        // Ensure a row exists
+        $this->db->query("INSERT IGNORE INTO installation_license (id, cached_is_active) VALUES (1, 1)");
+
         $result = $this->db->query("SELECT * FROM installation_license WHERE id = 1");
-        return $result->fetch_assoc();
+        return $result ? $result->fetch_assoc() : null;
     }
     
     /**

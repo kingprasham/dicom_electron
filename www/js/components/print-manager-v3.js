@@ -15,6 +15,7 @@ window.DICOM_VIEWER.PrintManager = class {
         this.availablePrinters = [];
         this.selectedPrinter = null;
         this.hospitalSettings = {}; // Hospital name, logo, etc.
+        this.currentPrintJobId = null; // Track current print job
         this.init();
     }
 
@@ -25,6 +26,84 @@ window.DICOM_VIEWER.PrintManager = class {
         await this.loadHospitalSettings();
         this.setupPrintButton();
         this.setupKeyboardShortcuts();
+
+        // Initialize print tracker if available
+        this.printTracker = window.DICOM_VIEWER.printTracker || null;
+    }
+
+    /**
+     * Track a print job for billing and analytics
+     * @param {Object} printInfo Print job information
+     * @returns {Promise<Object>} Tracking result
+     */
+    async trackPrint(printInfo) {
+        if (!this.printTracker) {
+            console.warn('PrintTracker not available');
+            return { success: false, error: 'Tracker not initialized' };
+        }
+
+        try {
+            // Get current study/patient info
+            const state = window.DICOM_VIEWER.STATE || {};
+            const currentImage = state.currentSeriesImages?.[state.currentImageIndex] || {};
+
+            const trackingData = {
+                study_uid: currentImage.study_instance_uid || currentImage.studyInstanceUid || null,
+                patient_id: currentImage.patient_id || currentImage.patientId || null,
+                patient_name: currentImage.patient_name || currentImage.patientName || null,
+                paper_size: printInfo.paperSize || this.printSettings?.paperSize || 'A4',
+                orientation: printInfo.orientation || this.getEffectivePrintSettings()?.orientation || 'landscape',
+                copies: printInfo.copies || 1,
+                pages_per_copy: printInfo.pagesPerCopy || 1,
+                total_pages: printInfo.totalPages || 1,
+                color_mode: printInfo.colorMode || this.printSettings?.colorMode || 'grayscale',
+                quality: printInfo.quality || this.printSettings?.quality || 'high',
+                printer_name: printInfo.printerName || this.getSelectedPrinterName() || 'Default',
+                printer_type: printInfo.printerType || 'local',
+                layout_type: printInfo.layoutType || '1x1',
+                include_patient_info: printInfo.includePatientInfo ?? (this.printSettings?.includePatientInfo ? 1 : 0),
+                include_annotations: printInfo.includeAnnotations ?? (this.printSettings?.includeAnnotations ? 1 : 0),
+                include_measurements: printInfo.includeMeasurements ?? (this.printSettings?.includeMeasurements ? 1 : 0)
+            };
+
+            const result = await this.printTracker.logPrint(trackingData);
+
+            if (result.success) {
+                this.currentPrintJobId = result.print_job_id;
+                console.log('Print tracked:', result.print_job_id, result.offline ? '(offline)' : '');
+            }
+
+            return result;
+        } catch (error) {
+            console.error('Failed to track print:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Update print job status
+     * @param {string} status Print status (completed, failed, cancelled)
+     * @param {string} errorMessage Optional error message
+     */
+    async updatePrintStatus(status, errorMessage = null) {
+        if (!this.printTracker || !this.currentPrintJobId) return;
+
+        try {
+            await this.printTracker.updatePrintStatus(this.currentPrintJobId, status, errorMessage);
+        } catch (error) {
+            console.error('Failed to update print status:', error);
+        }
+    }
+
+    /**
+     * Get selected printer name
+     */
+    getSelectedPrinterName() {
+        if (this.selectedPrinter && this.availablePrinters.length > 0) {
+            const printer = this.availablePrinters.find(p => p.id == this.selectedPrinter);
+            return printer?.name || 'Default';
+        }
+        return 'Default';
     }
 
     async loadHospitalSettings() {
@@ -1066,15 +1145,47 @@ window.DICOM_VIEWER.PrintManager = class {
 
             this.updateLoadingProgress('Complete!', 100);
 
+            // Track print for billing (only if not preview)
             if (!previewOnly) {
+                const settings = this.getEffectivePrintSettings();
+
+                // Detect layout type from viewport container
+                const containerClasses = viewportContainer.className;
+                let layoutType = '1x1';
+                const layoutMatch = containerClasses.match(/layout-spots-(\d+)/);
+                if (layoutMatch) {
+                    const spots = parseInt(layoutMatch[1]);
+                    const layoutMap = { 1: '1x1', 2: '1x2', 4: '2x2', 6: '2x3', 8: '2x4', 9: '3x3', 12: '3x4', 15: '3x5', 16: '4x4' };
+                    layoutType = layoutMap[spots] || `${spots}`;
+                }
+
+                // Track the print
+                await this.trackPrint({
+                    paperSize: settings.paperSize,
+                    orientation: settings.orientation,
+                    colorMode: settings.colorMode,
+                    quality: settings.quality,
+                    layoutType: layoutType,
+                    totalPages: 1,
+                    includePatientInfo: settings.includePatientInfo,
+                    includeAnnotations: settings.includeAnnotations,
+                    includeMeasurements: settings.includeMeasurements
+                });
+
                 setTimeout(() => {
                     printWindow.print();
+                    // Update status to completed after a delay
+                    setTimeout(() => {
+                        this.updatePrintStatus('completed');
+                    }, 2000);
                 }, 500);
             }
 
         } catch (error) {
             console.error('Layout print error:', error);
             this.showToast('Print failed: ' + error.message, 'error');
+            // Track failed print
+            await this.updatePrintStatus('failed', error.message);
         } finally {
             this.hideLoadingModal();
         }

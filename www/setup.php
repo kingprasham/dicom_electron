@@ -580,7 +580,7 @@ if (!$isAdmin) {
                 <h3 class="step-title">
                     <i class="bi bi-folder2-open"></i>
                     Auto-Folder Monitoring
-                    <span class="required-badge">Required</span>
+                    <span class="badge bg-secondary ms-2">Optional</span>
                 </h3>
 
                 <div class="alert-validation" id="step4Errors"></div>
@@ -591,7 +591,7 @@ if (!$isAdmin) {
                 </p>
 
                 <div class="mb-3">
-                    <label class="form-label">Add Folder Path <span class="text-danger">*</span></label>
+                    <label class="form-label">Add Folder Path</label>
                     <div class="input-group">
                         <input type="text" class="form-control" id="newFolderPath" placeholder="C:\DICOM\Incoming or /data/dicom/incoming">
                         <button class="btn btn-success" onclick="addFolderPath()">
@@ -698,9 +698,8 @@ if (!$isAdmin) {
                     errors.push('Password must be at least 4 characters');
                 }
             } else if (step === 4) {
-                if (folderPaths.length === 0) {
-                    errors.push('At least one folder path is required');
-                }
+                // Folder monitoring is optional - no validation needed
+                // Users can configure folder paths later from Settings
             }
 
             if (errors.length > 0) {
@@ -860,6 +859,27 @@ if (!$isAdmin) {
             };
 
             try {
+                // First, upload logo if selected
+                const logoFile = document.getElementById('hospitalLogo').files[0];
+                if (logoFile) {
+                    const logoFormData = new FormData();
+                    logoFormData.append('logo', logoFile);
+
+                    try {
+                        const logoResponse = await fetch('<?= BASE_PATH ?>/api/settings/upload-logo.php', {
+                            method: 'POST',
+                            body: logoFormData
+                        });
+                        const logoResult = await logoResponse.json();
+                        if (!logoResult.success) {
+                            console.warn('Logo upload failed:', logoResult.error);
+                        }
+                    } catch (logoErr) {
+                        console.warn('Logo upload error:', logoErr);
+                    }
+                }
+
+                // Complete setup
                 const response = await fetch('<?= BASE_PATH ?>/api/setup/complete.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -869,6 +889,15 @@ if (!$isAdmin) {
                 const result = await response.json();
 
                 if (result.success) {
+                    // Clear any existing tour flags to ensure fresh tour experience
+                    localStorage.removeItem('patientsTourCompleted');
+                    localStorage.removeItem('studiesTourCompleted');
+                    localStorage.removeItem('viewerTourCompleted');
+                    localStorage.removeItem('fullTourCompleted');
+                    localStorage.removeItem('fullTourSkipped');
+                    // Clear sync flag so progress bar shows for initial sync
+                    localStorage.removeItem('initialSyncCompleted');
+
                     alert('Setup completed successfully! Redirecting to the application...');
                     window.location.href = '<?= BASE_PATH ?>/pages/patients.html?tour=1';
                 } else {

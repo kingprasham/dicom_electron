@@ -25,31 +25,116 @@ require_once __DIR__ . '/../../includes/LicenseManager.php';
 $licenseManager = new LicenseManager();
 
 try {
+    // Ensure installation_license table exists
+    $db = getDbConnection();
+    $db->query("
+        CREATE TABLE IF NOT EXISTS installation_license (
+            id INT PRIMARY KEY DEFAULT 1,
+            license_key VARCHAR(32),
+            machine_id VARCHAR(64),
+            license_type VARCHAR(20),
+            activated_at DATETIME,
+            last_online_check DATETIME,
+            cached_valid_until DATE,
+            cached_is_active TINYINT(1) DEFAULT 1,
+            grace_period_start DATETIME
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    // Ensure a row exists
+    $db->query("INSERT IGNORE INTO installation_license (id, cached_is_active) VALUES (1, 1)");
+
     switch ($_SERVER['REQUEST_METHOD']) {
         case 'POST':
             $input = json_decode(file_get_contents('php://input'), true);
+            $startTrial = $input['start_trial'] ?? false;
             $licenseKey = $input['license_key'] ?? '';
             $machineId = $input['machine_id'] ?? LicenseManager::generateMachineId();
-            
-            if (empty($licenseKey)) {
-                echo json_encode(['success' => false, 'error' => 'License key is required']);
-                exit;
+
+            // Handle trial activation
+            if ($startTrial) {
+                // Check if trial was already used on this machine
+                $existingLicense = $licenseManager->getLocalLicense();
+                if ($existingLicense && !empty($existingLicense['license_key'])) {
+                    // Allow re-trial if previous expired
+                    if ($existingLicense['cached_valid_until'] && strtotime($existingLicense['cached_valid_until']) > time()) {
+                        echo json_encode(['success' => false, 'error' => 'A license is already active on this machine']);
+                        exit;
+                    }
+                }
+
+                // Create local trial license (15 days)
+                $trialKey = 'TRIAL' . date('Ymd') . substr(md5($machineId . time()), 0, 8);
+                $validUntil = date('Y-m-d', strtotime('+15 days'));
+
+                $stmt = $db->prepare("
+                    UPDATE installation_license SET
+                        license_key = ?,
+                        machine_id = ?,
+                        license_type = 'trial_15',
+                        activated_at = NOW(),
+                        last_online_check = NOW(),
+                        cached_valid_until = ?,
+                        cached_is_active = 1,
+                        grace_period_start = NULL
+                    WHERE id = 1
+                ");
+                $stmt->bind_param('sss', $trialKey, $machineId, $validUntil);
+                $stmt->execute();
+                $stmt->close();
+
+                $result = [
+                    'success' => true,
+                    'message' => '15-day trial activated',
+                    'license' => [
+                        'type' => 'trial_15',
+                        'valid_until' => $validUntil,
+                        'days_remaining' => 15
+                    ]
+                ];
+            } else {
+                // Normal license activation
+                if (empty($licenseKey)) {
+                    echo json_encode(['success' => false, 'error' => 'License key is required']);
+                    exit;
+                }
+
+                $machineInfo = [
+                    'machine_name' => $input['machine_name'] ?? gethostname(),
+                    'os_info' => $input['os_info'] ?? php_uname('s') . ' ' . php_uname('r'),
+                    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? ''
+                ];
+
+                $result = $licenseManager->activateLicense($licenseKey, $machineId, $machineInfo);
             }
-            
-            $machineInfo = [
-                'machine_name' => $input['machine_name'] ?? gethostname(),
-                'os_info' => $input['os_info'] ?? php_uname('s') . ' ' . php_uname('r'),
-                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? ''
-            ];
-            
-            $result = $licenseManager->activateLicense($licenseKey, $machineId, $machineInfo);
             
             if ($result['success']) {
                 // Get license details for session
-                $license = $licenseManager->getLicenseByKey($licenseKey);
-                
+                $license = null;
+                if (!$startTrial && !empty($licenseKey)) {
+                    $license = $licenseManager->getLicenseByKey($licenseKey);
+                }
+
                 // Create or get default admin user for this installation
                 $db = getDbConnection();
+
+                // IMPORTANT: Reset setup status for fresh license activation
+                // This ensures the setup wizard appears for new installations
+                // even if there was previous data in the database
+                try {
+                    // Reset setup_complete flag in system_settings
+                    $db->query("UPDATE system_settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
+
+                    // Reset setup_complete flag in settings table
+                    $db->query("UPDATE settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
+
+                    // Reset setup_completed for all admin users (they'll need to run setup again)
+                    $db->query("UPDATE users SET setup_completed = 0 WHERE role = 'admin'");
+
+                    logMessage("Reset setup status for fresh license activation", 'info', 'license.log');
+                } catch (Exception $e) {
+                    // Tables may not exist yet, that's fine - setup will create them
+                    logMessage("Could not reset setup status (tables may not exist): " . $e->getMessage(), 'debug', 'license.log');
+                }
                 
                 // Look for admin user or create one
                 $stmt = $db->prepare("SELECT * FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1");
@@ -61,8 +146,8 @@ try {
                     // Create default admin user if none exists
                     $passwordHash = password_hash('admin123', PASSWORD_DEFAULT);
                     $username = 'admin';
-                    $email = $license['customer_email'] ?: 'admin@local';
-                    $fullName = $license['customer_name'] ?: 'Administrator';
+                    $email = ($license && !empty($license['customer_email'])) ? $license['customer_email'] : 'admin@local';
+                    $fullName = ($license && !empty($license['customer_name'])) ? $license['customer_name'] : 'Administrator';
 
                     // Check if setup_completed column exists
                     $hasSetupCol = false;

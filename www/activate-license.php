@@ -215,20 +215,6 @@ if ($localLicense['valid'] && !isset($_GET['manage'])) {
                 <button class="btn btn-primary btn-activate" onclick="activateLicense()">
                     <i class="bi bi-key-fill me-2"></i> Activate License
                 </button>
-
-                <div class="divider">
-                    <span>or</span>
-                </div>
-
-                <div class="trial-option">
-                    <h6 class="text-success mb-2">
-                        <i class="bi bi-gift-fill"></i> Start Free Trial
-                    </h6>
-                    <p class="text-muted small mb-3">Try DICOM Viewer Pro free for 15 days</p>
-                    <button class="btn btn-outline-success" onclick="requestTrial()">
-                        <i class="bi bi-play-fill me-1"></i> Start Trial
-                    </button>
-                </div>
             </div>
 
             <!-- Success State -->
@@ -333,11 +319,6 @@ if ($localLicense['valid'] && !isset($_GET['manage'])) {
                 errorEl.textContent = 'Connection error. Please try again.';
                 errorEl.style.display = 'block';
             }
-        }
-
-        async function requestTrial() {
-            // Trials require a special endpoint - for now show message
-            alert('Please contact your administrator to receive a trial license key.');
         }
 
         function showChangeKey() {

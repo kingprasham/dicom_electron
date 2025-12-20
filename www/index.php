@@ -2,27 +2,12 @@
 // Start session and check authentication
 define('DICOM_VIEWER', true);
 require_once __DIR__ . '/auth/session.php';
-require_once __DIR__ . '/includes/LicenseManager.php';
 
 // Redirect to login if not authenticated
 requireLogin();
 
-// Check license validity
-$licenseManager = new LicenseManager();
-$licenseStatus = $licenseManager->checkLocalLicense();
-
-if (!$licenseStatus['valid']) {
-    // No valid license - redirect to activation
-    header('Location: ' . BASE_PATH . '/activate-license.php');
-    exit;
-}
-
-// If license needs online check, try to validate
-if ($licenseStatus['needs_online_check'] && !$licenseStatus['grace_ok']) {
-    // Grace period expired - require online validation
-    header('Location: ' . BASE_PATH . '/activate-license.php?revalidate=1');
-    exit;
-}
+// License check is done at login - if user is authenticated, they have a valid license
+// No need to re-check on every page load
 
 // Redirect to dashboard if no study selected (optional, but good UX)
 if (empty($_GET['study_id']) && empty($_GET['series_id']) && empty($_GET['studyUID']) && empty($_GET['orthancId'])) {
@@ -2587,10 +2572,27 @@ $userRole = $_SESSION['role'] ?? 'viewer';
             }
         ];
 
-        // Start viewer tour if coming from studies page (only if not already skipped)
+        // Start viewer tour if coming from studies page (linked tour with tour=1 in URL)
+        // This is blocked by fullTourSkipped since it's part of the multi-page tour chain
         document.addEventListener('DOMContentLoaded', () => {
             const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('tour') === '1' && !localStorage.getItem('fullTourSkipped')) {
+            const linkedTour = urlParams.get('tour') === '1' && !localStorage.getItem('fullTourSkipped');
+
+            // Auto-start tour on FIRST VISIT to this page
+            // This is ONLY blocked by viewerTourCompleted, NOT by fullTourSkipped
+            // This ensures the tour runs at least once when visiting the page for the first time
+            const firstVisitTour = !localStorage.getItem('viewerTourCompleted');
+
+            console.log('[Viewer Tour] Check:', {
+                linkedTour,
+                firstVisitTour,
+                viewerTourCompleted: localStorage.getItem('viewerTourCompleted'),
+                fullTourSkipped: localStorage.getItem('fullTourSkipped'),
+                tourParam: urlParams.get('tour')
+            });
+
+            if (linkedTour || firstVisitTour) {
+                console.log('[Viewer Tour] Starting tour...');
                 // Wait for viewer to fully load
                 setTimeout(() => {
                     if (typeof AppTour !== 'undefined') {
@@ -2604,11 +2606,12 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                                 window.history.replaceState({}, '', url);
                                 // Show completion message
                                 if (window.DICOM_VIEWER?.showToast) {
-                                    window.DICOM_VIEWER.showToast('🎉 Tutorial complete! You are ready to use the viewer.', 'success');
+                                    window.DICOM_VIEWER.showToast('Tutorial complete! You are ready to use the viewer.', 'success');
                                 }
                             },
                             onSkip: () => {
-                                localStorage.setItem('fullTourSkipped', 'true');
+                                // Mark THIS tour as completed when skipped, not global skip
+                                localStorage.setItem('viewerTourCompleted', 'true');
                                 const url = new URL(window.location);
                                 url.searchParams.delete('tour');
                                 window.history.replaceState({}, '', url);
@@ -2617,8 +2620,12 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                         // Set window.appTour so tour buttons work
                         window.appTour = viewerTour;
                         viewerTour.setSteps(viewerTourSteps).start();
+                    } else {
+                        console.warn('[Viewer Tour] AppTour class not found!');
                     }
                 }, 2000);
+            } else {
+                console.log('[Viewer Tour] Tour NOT starting - already completed');
             }
         });
     </script>
