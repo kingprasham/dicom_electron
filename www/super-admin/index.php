@@ -196,15 +196,7 @@ $recentActivity = ActivityLogger::getActivity(20);
                     </div>
                 </a>
             </div>
-            <div class="col-md-4 mb-3">
-                <a href="<?= BASE_PATH ?>/admin/location-management.php" class="text-decoration-none">
-                    <div class="stat-card" style="cursor: pointer;">
-                        <i class="bi bi-geo-alt-fill text-warning display-6 mb-2"></i>
-                        <h5 class="text-white">Location Management</h5>
-                        <p class="text-muted mb-0 small">Manage rooms & machines</p>
-                    </div>
-                </a>
-            </div>
+
             <div class="col-md-3 mb-3">
                 <a href="print-pricing.php" class="text-decoration-none">
                     <div class="stat-card" style="cursor: pointer;">

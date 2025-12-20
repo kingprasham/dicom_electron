@@ -98,6 +98,39 @@ try {
                     exit;
                 }
 
+                // IMPORTANT: Check if this is the SAME license BEFORE activateLicense() updates the DB
+                // Also check if setup is already complete (as a fallback to preserve it)
+                $isSameLicense = false;
+                $setupAlreadyComplete = false;
+
+                try {
+                    // Normalize license keys by removing non-alphanumeric characters for comparison
+                    $normalizedInputKey = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $licenseKey));
+
+                    $existingLicenseCheck = $db->query("SELECT license_key FROM installation_license WHERE id = 1 LIMIT 1");
+                    if ($existingLicenseCheck && $row = $existingLicenseCheck->fetch_assoc()) {
+                        $existingKey = $row['license_key'] ?? '';
+                        $normalizedExistingKey = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $existingKey));
+
+                        if (!empty($normalizedExistingKey) && $normalizedExistingKey === $normalizedInputKey) {
+                            $isSameLicense = true;
+                            logMessage("Same license key detected - will preserve setup status", 'info', 'license.log');
+                        }
+                    }
+
+                    // Also check if setup is already complete (fallback protection)
+                    $setupCheck = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'setup_complete' LIMIT 1");
+                    if ($setupCheck && $row = $setupCheck->fetch_assoc()) {
+                        if ($row['setting_value'] === '1') {
+                            $setupAlreadyComplete = true;
+                            logMessage("Setup already complete - will preserve status", 'info', 'license.log');
+                        }
+                    }
+                } catch (Exception $e) {
+                    $isSameLicense = false;
+                    $setupAlreadyComplete = false;
+                }
+
                 $machineInfo = [
                     'machine_name' => $input['machine_name'] ?? gethostname(),
                     'os_info' => $input['os_info'] ?? php_uname('s') . ' ' . php_uname('r'),
@@ -105,9 +138,19 @@ try {
                 ];
 
                 $result = $licenseManager->activateLicense($licenseKey, $machineId, $machineInfo);
+
+                // Normalize response - LicenseManager returns 'valid' but we expect 'success'
+                if (isset($result['valid']) && !isset($result['success'])) {
+                    $result['success'] = $result['valid'];
+                }
+
+                // Pass the flags to later code
+                $result['_isSameLicense'] = $isSameLicense;
+                $result['_setupAlreadyComplete'] = $setupAlreadyComplete;
             }
-            
-            if ($result['success']) {
+
+            // Check if activation was successful
+            if (!empty($result['success'])) {
                 // Get license details for session
                 $license = null;
                 if (!$startTrial && !empty($licenseKey)) {
@@ -117,27 +160,35 @@ try {
                 // Create or get default admin user for this installation
                 $db = getDbConnection();
 
-                // IMPORTANT: Reset setup status for fresh license activation
-                // This ensures the setup wizard appears for new installations
-                // even if there was previous data in the database
-                try {
-                    // Reset setup_complete flag in system_settings
-                    $db->query("UPDATE system_settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
+                // Use the flags we set BEFORE activateLicense() was called
+                $isSameLicense = $result['_isSameLicense'] ?? false;
+                $setupAlreadyComplete = $result['_setupAlreadyComplete'] ?? false;
 
-                    // Reset setup_complete flag in settings table
-                    $db->query("UPDATE settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
+                // Only reset setup status for NEW license activation (different license) AND setup not already complete
+                // If setup is already complete, preserve it (user already went through wizard)
+                $shouldReset = !$isSameLicense && !$startTrial && !$setupAlreadyComplete;
 
-                    // Reset setup_completed for all admin users (they'll need to run setup again)
-                    $db->query("UPDATE users SET setup_completed = 0 WHERE role = 'admin'");
+                if ($shouldReset) {
+                    try {
+                        // Reset setup_complete flag in system_settings
+                        $db->query("UPDATE system_settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
 
-                    logMessage("Reset setup status for fresh license activation", 'info', 'license.log');
-                } catch (Exception $e) {
-                    // Tables may not exist yet, that's fine - setup will create them
-                    logMessage("Could not reset setup status (tables may not exist): " . $e->getMessage(), 'debug', 'license.log');
+                        // Reset setup_complete flag in settings table
+                        $db->query("UPDATE settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
+
+                        // Reset setup_completed for all admin users
+                        $db->query("UPDATE users SET setup_completed = 0 WHERE role = 'admin'");
+
+                        logMessage("Reset setup status for new license activation", 'info', 'license.log');
+                    } catch (Exception $e) {
+                        logMessage("Could not reset setup status: " . $e->getMessage(), 'debug', 'license.log');
+                    }
+                } else {
+                    logMessage("Preserving setup status (same license: $isSameLicense, trial: $startTrial, already complete: $setupAlreadyComplete)", 'info', 'license.log');
                 }
                 
-                // Look for admin user or create one
-                $stmt = $db->prepare("SELECT * FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1");
+                // Look for REGULAR admin user (exclude super admin)
+                $stmt = $db->prepare("SELECT * FROM users WHERE role = 'admin' AND is_active = 1 AND (is_super_admin = 0 OR is_super_admin IS NULL) ORDER BY id LIMIT 1");
                 $stmt->execute();
                 $user = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
@@ -214,8 +265,17 @@ try {
                     'full_name' => $user['full_name'],
                     'role' => $user['role']
                 ];
+            } else {
+                // Activation failed - ensure proper error response
+                if (!isset($result['success'])) {
+                    $result['success'] = false;
+                }
+                if (!isset($result['error'])) {
+                    $result['error'] = 'License activation failed';
+                }
+                logMessage("License activation failed: " . ($result['error'] ?? 'Unknown error'), 'warning', 'license.log');
             }
-            
+
             echo json_encode($result);
             break;
             

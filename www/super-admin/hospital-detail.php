@@ -298,18 +298,14 @@ $totalRevenue = array_sum(array_column($dailyStats, 'revenue'));
                 <div class="card-custom">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0"><i class="bi bi-geo-alt me-2 text-warning"></i>Locations</h5>
-                        <a href="<?= BASE_PATH ?>/admin/location-management.php" class="btn btn-sm btn-outline-warning">
-                            <i class="bi bi-pencil"></i> Manage
-                        </a>
+                        <span class="badge bg-secondary"><?= count($locations) ?> total</span>
                     </div>
                     
                     <?php if (empty($locations)): ?>
                         <div class="text-center py-4 text-muted">
                             <i class="bi bi-geo-alt display-4"></i>
                             <p class="mt-2">No locations created yet</p>
-                            <a href="<?= BASE_PATH ?>/admin/location-management.php" class="btn btn-warning btn-sm">
-                                <i class="bi bi-plus"></i> Add Location
-                            </a>
+                            <small class="text-muted">Hospital admin will create locations from their workstation</small>
                         </div>
                     <?php else: ?>
                         <table class="table table-custom table-sm">

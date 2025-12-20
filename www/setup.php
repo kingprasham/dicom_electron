@@ -53,39 +53,31 @@ try {
 
 // Check if setup is already complete (only if NOT forced)
 $setupComplete = false;
-$hospitalConfigured = false;
 
 if (!isset($_GET['force'])) {
     try {
         $db = getDbConnection();
 
-        // Check system_settings first (main app table)
-        $result = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'hospital_name' AND setting_value != '' LIMIT 1");
+        // Check setup_complete flag in system_settings (primary source)
+        $result = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'setup_complete' LIMIT 1");
         if ($result && $result->num_rows > 0) {
-            $hospitalConfigured = true;
-        }
-
-        // Fallback to settings table
-        if (!$hospitalConfigured) {
-            $result = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'hospital_name' AND setting_value != '' LIMIT 1");
-            if ($result && $result->num_rows > 0) {
-                $hospitalConfigured = true;
-            }
-        }
-
-        // Check setup_complete flag in system_settings first
-        $result = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'setup_complete' AND setting_value = '1' LIMIT 1");
-        if ($result && $result->num_rows > 0 && $hospitalConfigured) {
-            $setupComplete = true;
-        }
-
-        // Fallback to settings table
-        if (!$setupComplete && $hospitalConfigured) {
-            $result = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'setup_complete' AND setting_value = '1' LIMIT 1");
-            if ($result && $result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+            if ($row['setting_value'] === '1') {
                 $setupComplete = true;
             }
         }
+
+        // Fallback: check settings table for setup_complete
+        if (!$setupComplete) {
+            $result = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'setup_complete' LIMIT 1");
+            if ($result && $result->num_rows > 0) {
+                $row = $result->fetch_assoc();
+                if ($row['setting_value'] === '1') {
+                    $setupComplete = true;
+                }
+            }
+        }
+
     } catch (Exception $e) {
         // Tables don't exist - need setup
         $setupComplete = false;

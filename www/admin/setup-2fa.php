@@ -10,6 +10,23 @@ require_once __DIR__ . '/../auth/session.php';
 // Require login
 requireLogin('../login.php');
 
+// Only super admin can access 2FA setup for private settings
+$db = getDbConnection();
+$stmt = $db->prepare("SELECT is_super_admin FROM users WHERE id = ?");
+$stmt->bind_param("i", $_SESSION['user_id']);
+$stmt->execute();
+$result = $stmt->get_result();
+$userInfo = $result->fetch_assoc();
+$stmt->close();
+
+$isSuperAdmin = $userInfo && $userInfo['is_super_admin'];
+
+if (!$isSuperAdmin) {
+    // Redirect non-super admin users
+    header('Location: ' . BASE_PATH . '/admin/general-settings.php?error=access_denied');
+    exit;
+}
+
 $userName = $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'User';
 $userEmail = $_SESSION['email'] ?? '';
 ?>

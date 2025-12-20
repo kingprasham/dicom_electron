@@ -57,9 +57,28 @@ try {
 }
 
 /**
- * GET - List locations
+ * GET - List locations or get single location
  */
 function handleGet($db) {
+    // If ID is provided, return single location
+    if (isset($_GET['id'])) {
+        $id = (int)$_GET['id'];
+        $stmt = $db->prepare("SELECT * FROM locations WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $location = $result->fetch_assoc();
+        $stmt->close();
+        
+        if ($location) {
+            echo json_encode(['success' => true, 'location' => $location]);
+        } else {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Location not found']);
+        }
+        return;
+    }
+
     $includeStats = isset($_GET['include_stats']) && $_GET['include_stats'] === 'true';
     $activeOnly = !isset($_GET['include_inactive']) || $_GET['include_inactive'] !== 'true';
 
@@ -152,12 +171,30 @@ function handlePost($db) {
     }
     $stmt->close();
 
+    // Auto-detect license_id from current installation
+    $licenseId = $data['license_id'] ?? null;
+    if (!$licenseId) {
+        // Get from installation_license table
+        $result = $db->query("SELECT license_key FROM installation_license WHERE id = 1");
+        if ($result && $row = $result->fetch_assoc()) {
+            if (!empty($row['license_key'])) {
+                // Look up the license ID from the key
+                $stmt = $db->prepare("SELECT id FROM licenses WHERE license_key = ?");
+                $stmt->bind_param("s", $row['license_key']);
+                $stmt->execute();
+                $licResult = $stmt->get_result();
+                if ($licResult && $licRow = $licResult->fetch_assoc()) {
+                    $licenseId = $licRow['id'];
+                }
+                $stmt->close();
+            }
+        }
+    }
+
     $stmt = $db->prepare("
         INSERT INTO locations (location_code, location_name, department, floor, building, description, license_id)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ");
-
-    $licenseId = $data['license_id'] ?? null;
 
     $stmt->bind_param(
         "ssssssi",

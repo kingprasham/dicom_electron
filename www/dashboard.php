@@ -44,37 +44,41 @@ if (!empty($userInfo['is_super_admin'])) {
 
 // Check if first-time setup is needed (for admins)
 if (isAdmin()) {
-    $setupNeeded = false;
+    $setupNeeded = true; // Default to needing setup
+    $setupFlagSet = false;
 
-    // Check 1: User's setup_completed flag
-    if (empty($userInfo['setup_completed'])) {
-        $setupNeeded = true;
-    }
-
-    // Check 2: Hospital name not configured (fallback check)
-    // Check system_settings first (main app table), then settings as fallback
-    if (!$setupNeeded) {
-        $hospitalFound = false;
-        try {
-            // Check system_settings first (primary source)
-            $result = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'hospital_name' AND setting_value != '' LIMIT 1");
-            if ($result && $result->num_rows > 0) {
-                $hospitalFound = true;
+    // PRIMARY CHECK: Is setup_complete flag set to '1'?
+    // This flag is set by /api/setup/complete.php after wizard completion
+    // and reset to '0' by /api/license/activate.php on NEW license activation
+    try {
+        // Check setup_complete flag in system_settings (primary source)
+        $result = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'setup_complete' LIMIT 1");
+        if ($result && $result->num_rows > 0) {
+            $row = $result->fetch_assoc();
+            if ($row['setting_value'] === '1') {
+                $setupFlagSet = true;
             }
-            // Fallback to settings table
-            if (!$hospitalFound) {
-                $result = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'hospital_name' AND setting_value != '' LIMIT 1");
-                if ($result && $result->num_rows > 0) {
-                    $hospitalFound = true;
+        }
+
+        // Fallback: check settings table for setup_complete
+        if (!$setupFlagSet) {
+            $result = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'setup_complete' LIMIT 1");
+            if ($result && $result->num_rows > 0) {
+                $row = $result->fetch_assoc();
+                if ($row['setting_value'] === '1') {
+                    $setupFlagSet = true;
                 }
             }
-            if (!$hospitalFound) {
-                $setupNeeded = true;
-            }
-        } catch (Exception $e) {
-            // Tables don't exist - definitely need setup
-            $setupNeeded = true;
         }
+
+    } catch (Exception $e) {
+        // Tables don't exist - definitely need setup
+        $setupFlagSet = false;
+    }
+
+    // Setup is NOT needed only if the flag is explicitly set to '1'
+    if ($setupFlagSet) {
+        $setupNeeded = false;
     }
 
     if ($setupNeeded) {

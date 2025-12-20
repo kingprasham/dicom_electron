@@ -1,22 +1,32 @@
 <?php
 /**
  * Location Management Page
- * Manage rooms/locations where software is installed
+ * DEPRECATED: Location management is now embedded in private-settings.php
+ * This file redirects to private-settings.php
  */
 define('DICOM_VIEWER', true);
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../auth/session.php';
-require_once __DIR__ . '/../includes/rbac.php';
 
 requireLogin('../login.php');
 
-// Allow super admin OR regular admin with manage_settings permission
-if (!($_SESSION['is_super_admin'] ?? false) && !hasPermission('manage_settings')) {
-    header('Location: ' . BASE_PATH . '/pages/access-denied.html');
-    exit;
-}
+// Redirect to private-settings.php where location management is now embedded
+header('Location: ' . BASE_PATH . '/admin/private-settings.php');
+exit;
 
+// The code below is kept for reference but never executes
+
+$userName = $_SESSION['username'] ?? 'Admin';
 $db = getDbConnection();
+
+// Check if user has 2FA enabled (for display purposes)
+$stmt = $db->prepare("SELECT totp_enabled, totp_secret FROM users WHERE id = ?");
+$stmt->bind_param("i", $_SESSION['user_id']);
+$stmt->execute();
+$result = $stmt->get_result();
+$user2FA = $result->fetch_assoc();
+$stmt->close();
+$has2FAEnabled = ($user2FA && $user2FA['totp_enabled'] && !empty($user2FA['totp_secret']));
 
 // Get locations with stats
 $locations = [];
@@ -111,18 +121,28 @@ while ($row = $result->fetch_assoc()) {
             --bs-table-color: #fff;
             --bs-table-border-color: rgba(255, 255, 255, 0.1);
         }
+        .settings-nav-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 15px;
+        }
     </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid">
-            <a class="navbar-brand" href="<?= BASE_PATH ?>/dashboard.php">
-                <i class="bi bi-grid-3x3-gap-fill me-2"></i>DICOM Viewer
+            <a class="navbar-brand" href="<?= BASE_PATH ?>/pages/patients.html">
+                <i class="bi bi-heart-pulse-fill text-primary me-2"></i>DICOM Viewer Pro
             </a>
             <div class="d-flex align-items-center gap-3">
-                <a href="<?= BASE_PATH ?>/super-admin/index.php" class="btn btn-outline-primary btn-sm">
-                    <i class="bi bi-arrow-left"></i> Back to Super Admin
+                <a href="<?= BASE_PATH ?>/admin/private-settings.php" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-left"></i> Back to Settings
                 </a>
+                <span class="text-light">
+                    <i class="bi bi-person-circle"></i>
+                    <?= htmlspecialchars($userName) ?>
+                </span>
                 <a href="<?= BASE_PATH ?>/logout.php" class="btn btn-outline-danger btn-sm">
                     <i class="bi bi-box-arrow-right"></i> Logout
                 </a>
@@ -131,6 +151,31 @@ while ($row = $result->fetch_assoc()) {
     </nav>
 
     <div class="container-fluid px-4">
+        <!-- Settings Navigation -->
+        <div class="settings-nav-card mb-4">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <span class="text-muted me-2">Settings:</span>
+                <a href="<?= BASE_PATH ?>/admin/general-settings.php" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-hospital"></i> General
+                </a>
+                <a href="<?= BASE_PATH ?>/admin/folder-config.php" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-folder-symlink"></i> Folder Monitoring
+                </a>
+                <a href="<?= BASE_PATH ?>/admin/private-settings.php" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-shield-lock"></i> Private Settings
+                </a>
+                <a href="<?= BASE_PATH ?>/admin/setup-2fa.php" class="btn btn-outline-success btn-sm">
+                    <i class="bi bi-shield-check"></i> 2FA Security
+                </a>
+                <a href="<?= BASE_PATH ?>/admin/hospital-config.php" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-database"></i> Backup & Import
+                </a>
+                <a href="<?= BASE_PATH ?>/admin/location-management.php" class="btn btn-info btn-sm">
+                    <i class="bi bi-geo-alt"></i> Location Management
+                </a>
+            </div>
+        </div>
+
         <!-- Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>

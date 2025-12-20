@@ -577,10 +577,10 @@ if (isLoggedIn()) {
                     licenseForm.style.display = 'none';
                     licenseSuccess.style.display = 'block';
 
-                    // Redirect to setup wizard first (which will then redirect to patients with tour)
-                    // The setup.php handles first-time hospital configuration
+                    // Redirect to dashboard which will check setup status
+                    // Dashboard redirects to setup.php if needed, or patients.html if setup is complete
                     setTimeout(() => {
-                        window.location.href = `${basePath}/setup.php`;
+                        window.location.href = `${basePath}/dashboard.php`;
                     }, 1500);
                 } else {
                     showError(data.error || 'Invalid or expired license key');

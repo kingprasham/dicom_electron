@@ -26,10 +26,19 @@ try {
         $hasLicense = !empty($row['license_key']);
     }
     
-    // Check if system_settings has setup_completed flag - THIS IS THE PRIMARY CHECK
-    $result = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'setup_completed'");
+    // Check if system_settings has setup_complete flag - THIS IS THE PRIMARY CHECK
+    // NOTE: The key is 'setup_complete' (without 'd') - this is what complete.php saves
+    $result = $db->query("SELECT setting_value FROM system_settings WHERE setting_key = 'setup_complete'");
     if ($result && $row = $result->fetch_assoc()) {
         $setupComplete = ($row['setting_value'] === '1');
+    }
+
+    // Fallback: check settings table for setup_complete
+    if (!$setupComplete) {
+        $result = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'setup_complete'");
+        if ($result && $row = $result->fetch_assoc()) {
+            $setupComplete = ($row['setting_value'] === '1');
+        }
     }
     
     // Check if at least one non-super-admin user exists (hospital admin)

@@ -11,7 +11,8 @@
       "Bash(grep:*)",
       "Bash(mkdir:*)",
       "Bash(php -r:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(C:xamppphpphp.exe -r \"require_once ''C:/xampp/htdocs/papa/dicom_again/claude/desktop-version/electron/www/includes/config.php''; $db = getDbConnection\\(\\); echo ''Checking database...\\\\n''; $result = $db->query\\(\"\"SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN \\(''setup_complete'', ''hospital_name''\\)\"\"\\); while \\($row = $result->fetch_assoc\\(\\)\\) { echo $row[''setting_key''] . '' = '' . $row[''setting_value''] . \"\"\\\\n\"\"; } $result = $db->query\\(\"\"SELECT setting_value FROM system_settings WHERE setting_key = ''hospital_name'' AND setting_value != '''' LIMIT 1\"\"\\); if \\($result && $result->num_rows > 0\\) { $db->query\\(\"\"INSERT INTO system_settings \\(setting_key, setting_value\\) VALUES \\(''setup_complete'', ''1''\\) ON DUPLICATE KEY UPDATE setting_value = ''1''\"\"\\); $db->query\\(\"\"INSERT INTO settings \\(setting_key, setting_value\\) VALUES \\(''setup_complete'', ''1''\\) ON DUPLICATE KEY UPDATE setting_value = ''1''\"\"\\); echo ''Fixed: setup_complete set to 1''; } else { echo ''No hospital_name found''; }\")"
     ]
   }
 }
