@@ -43,52 +43,50 @@ if (!isAdmin()) {
 
 try {
     $db = getDbConnection();
-    
-    // Get all settings
-    $query = "SELECT * FROM system_settings ORDER BY category, setting_key";
+
+    // Get all settings from system_settings table (simple key-value structure)
+    $query = "SELECT setting_key, setting_value FROM system_settings ORDER BY setting_key";
     $result = $db->query($query);
-    
+
     if (!$result) {
         throw new Exception("Failed to fetch settings: " . $db->error);
     }
-    
-    // Organize settings by category
-    $settings = [];
+
+    // Organize settings - put all in 'general' category for simplicity
+    $settings = ['general' => []];
+
+    // Define sensitive keys that should be masked
+    $sensitiveKeys = ['private_settings_pin', 'private_settings_secret', 'current_access_code', 'orthanc_password'];
+
     while ($row = $result->fetch_assoc()) {
-        $category = $row['category'] ?? 'general';
-        
-        if (!isset($settings[$category])) {
-            $settings[$category] = [];
-        }
-        
+        $settingKey = $row['setting_key'];
+        $settingValue = $row['setting_value'];
+
         // Mask sensitive values
-        if ($row['is_sensitive'] && !empty($row['setting_value'])) {
-            $row['setting_value'] = str_repeat('*', 8);
-            $row['is_masked'] = true;
-        } else {
-            $row['is_masked'] = false;
+        $isSensitive = in_array($settingKey, $sensitiveKeys);
+        if ($isSensitive && !empty($settingValue)) {
+            $settingValue = str_repeat('*', 8);
         }
-        
-        // Convert boolean strings to actual booleans for easier JS handling
-        if ($row['setting_type'] === 'boolean') {
-            $row['setting_value'] = filter_var($row['setting_value'], FILTER_VALIDATE_BOOLEAN);
+
+        // Convert boolean strings to actual booleans
+        if (in_array(strtolower($settingValue), ['true', 'false'])) {
+            $settingValue = strtolower($settingValue) === 'true';
         }
-        
-        // Convert integers
-        if ($row['setting_type'] === 'integer' && $row['setting_value'] !== '') {
-            $row['setting_value'] = (int)$row['setting_value'];
-        }
-        
-        $settings[$category][] = $row;
+
+        $settings['general'][] = [
+            'setting_key' => $settingKey,
+            'setting_value' => $settingValue,
+            'is_masked' => $isSensitive && !empty($row['setting_value'])
+        ];
     }
-    
+
     $result->free();
-    
+
     echo json_encode([
         'success' => true,
         'settings' => $settings
     ]);
-    
+
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode([

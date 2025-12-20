@@ -5,7 +5,7 @@
  *
  * POST /api/auth/login.php
  * Body: { "username": "...", "password": "..." }
- * Returns: { "success": true, "user": {...} }
+ * Returns: { "success": true, "user": {...} } or { "requires_2fa": true }
  */
 
 define('DICOM_VIEWER', true);
@@ -49,10 +49,11 @@ try {
     // Sanitize username
     $username = sanitizeInput($username);
 
-    // Attempt login
+    // Attempt login (no 2FA at login - 2FA only for private settings)
     $result = loginUser($username, $password);
 
     if ($result['success']) {
+        // Normal login successful
         sendJsonResponse([
             'success' => true,
             'message' => 'Login successful',
@@ -66,3 +67,4 @@ try {
     logMessage("Login API error: " . $e->getMessage(), 'error', 'api.log');
     sendErrorResponse('An unexpected error occurred', 500);
 }
+

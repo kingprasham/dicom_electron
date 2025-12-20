@@ -36,6 +36,17 @@ try {
     }
 
     $user = getCurrentUser();
+    
+    // Get 2FA status from database
+    $db = getDbConnection();
+    $stmt = $db->prepare("SELECT totp_enabled FROM users WHERE id = ?");
+    $stmt->bind_param("i", $user['id']);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    
+    $user['totp_enabled'] = (bool)($row['totp_enabled'] ?? false);
 
     sendJsonResponse([
         'success' => true,
@@ -46,3 +57,4 @@ try {
     logMessage("Get current user API error: " . $e->getMessage(), 'error', 'api.log');
     sendErrorResponse('An unexpected error occurred', 500);
 }
+

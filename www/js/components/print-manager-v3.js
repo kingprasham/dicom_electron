@@ -422,42 +422,38 @@ window.DICOM_VIEWER.PrintManager = class {
                                 </div>
                             </div>
 
-                            <!-- Print Type Selection -->
-                            <h6 class="text-primary mb-3">
-                                <i class="bi bi-file-earmark me-2"></i>What would you like to print?
-                            </h6>
-                            <div class="row g-3 mb-4">
-                                <div class="col-md-4">
-                                    <div class="print-type-card active" data-type="currentLayout">
-                                        <input type="radio" name="printType" value="currentLayout" checked hidden>
-                                        <i class="bi bi-grid-3x3 fs-3 text-primary mb-2"></i>
-                                        <h6 class="mb-1">Current View</h6>
-                                        <small class="text-muted">Print exactly what you see<br>on screen</small>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="print-type-card" data-type="allImages">
-                                        <input type="radio" name="printType" value="allImages" hidden>
-                                        <i class="bi bi-images fs-3 text-warning mb-2"></i>
-                                        <h6 class="mb-1">All Images</h6>
-                                        <small class="text-muted">Print all ${state.currentSeriesImages?.length || 0} images<br>on multiple pages</small>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="print-type-card" data-type="report">
-                                        <input type="radio" name="printType" value="report" hidden>
-                                        <i class="bi bi-file-medical fs-3 text-success mb-2"></i>
-                                        <h6 class="mb-1">Medical Report</h6>
-                                        <small class="text-muted" id="reportStatus">Checking for report...</small>
+                            <!-- Print Info -->
+                            <div class="alert alert-info mb-4">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-images fs-4 me-3"></i>
+                                    <div>
+                                        <strong>Print All ${state.currentSeriesImages?.length || 0} Images</strong><br>
+                                        <small>Uses native print dialog - select pages, copies, printer like Word/Excel</small>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Layout Selector removed - auto-detects current viewport layout -->
-                            <div id="allImagesOptions" style="display: none;">
-                                <div class="alert alert-success small mb-3">
-                                    <i class="bi bi-check-circle me-2"></i>
-                                    <span id="pageCalculation">Will use your current viewport layout automatically</span>
+                            <!-- Special Print Options -->
+                            <h6 class="text-primary mb-3">
+                                <i class="bi bi-file-earmark me-2"></i>Or choose special print type:
+                            </h6>
+                            <div class="row g-3 mb-4">
+                                <input type="radio" name="printType" value="allImages" checked hidden id="printTypeImages">
+                                <div class="col-md-6">
+                                    <div class="print-type-card" data-type="report">
+                                        <input type="radio" name="printType" value="report" hidden>
+                                        <i class="bi bi-file-medical fs-3 text-success mb-2"></i>
+                                        <h6 class="mb-1">Medical Report</h6>
+                                        <small class="text-muted" id="reportStatus">Checking...</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="print-type-card" data-type="pcpndt">
+                                        <input type="radio" name="printType" value="pcpndt" hidden>
+                                        <i class="bi bi-file-earmark-medical fs-3 text-info mb-2"></i>
+                                        <h6 class="mb-1">PCPNDT Form F</h6>
+                                        <small class="text-muted">Compliance print form</small>
+                                    </div>
                                 </div>
                             </div>
 
@@ -850,6 +846,9 @@ window.DICOM_VIEWER.PrintManager = class {
                 } else {
                     this.showToast('No report available to print', 'warning');
                 }
+            } else if (printType === 'pcpndt') {
+                // PCPNDT Form F printing
+                await this.printPcpndtFormF(previewOnly);
             }
         } catch (error) {
             console.error('Print error:', error);
@@ -1006,11 +1005,13 @@ window.DICOM_VIEWER.PrintManager = class {
                     clonedContainer.querySelectorAll('.empty-viewport-indicator').forEach(el => {
                         el.style.display = 'none';
                     });
-                    // Hide active viewport border/highlight
+                    // Hide active viewport border/highlight (including yellow border)
                     clonedViewports.forEach(vp => {
                         vp.classList.remove('active');
+                        vp.classList.remove('selected');
                         vp.style.outline = 'none';
                         vp.style.boxShadow = 'none';
+                        vp.style.border = 'none';
                     });
                     // Remove viewport name pseudo-element labels by clearing data attribute
                     clonedViewports.forEach(vp => {
@@ -1393,11 +1394,13 @@ window.DICOM_VIEWER.PrintManager = class {
                             clonedContainer.querySelectorAll('.viewport-overlay').forEach(el => el.style.display = 'none');
                             // Hide empty viewport indicators
                             clonedContainer.querySelectorAll('.empty-viewport-indicator').forEach(el => el.style.display = 'none');
-                            // Hide active viewport border/highlight
+                            // Hide active viewport border/highlight (including yellow border)
                             clonedViewports.forEach(vp => {
                                 vp.classList.remove('active');
+                                vp.classList.remove('selected');
                                 vp.style.outline = 'none';
                                 vp.style.boxShadow = 'none';
+                                vp.style.border = 'none';
                             });
                             // Remove viewport name pseudo-element labels
                             clonedViewports.forEach(vp => vp.removeAttribute('data-viewport-name'));
@@ -1859,15 +1862,15 @@ window.DICOM_VIEWER.PrintManager = class {
 
         .viewport-grid {
             display: grid;
-            gap: 6px;
+            gap: ${settings.borderEnabled ? `${settings.borderWidth || 2}px` : '0'};
             height: ${settings.orientation === 'landscape' ? '155mm' : '230mm'};
+            background: ${settings.borderEnabled ? (settings.borderColor || '#000000') : 'transparent'};
         }
 
         .viewport-cell {
             position: relative;
             background: #000;
-            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
-            border-radius: 4px;
+            border: none;
             overflow: hidden;
             display: flex;
             align-items: center;
@@ -2544,6 +2547,283 @@ window.DICOM_VIEWER.PrintManager = class {
     hideLoadingModal() {
         const modal = document.getElementById('printLoadingModalV3');
         if (modal) modal.remove();
+    }
+
+    /**
+     * Print PCPNDT Form F
+     * Generates a compliance print form based on PCPNDT Act requirements
+     */
+    async printPcpndtFormF(previewOnly = false) {
+        this.showLoadingModal('Generating PCPNDT Form F...', 0);
+
+        try {
+            // Get patient/study info
+            const state = window.DICOM_VIEWER.STATE;
+            const currentImage = state.currentSeriesImages?.[state.currentImageIndex] || {};
+
+            const patientInfo = {
+                name: currentImage.patient_name || currentImage.patientName || 'Unknown Patient',
+                id: currentImage.patient_id || currentImage.patientId || '',
+                age: currentImage.patient_age || '',
+                sex: currentImage.patient_sex || '',
+                studyDate: currentImage.study_date || currentImage.studyDate || new Date().toLocaleDateString(),
+                studyDescription: currentImage.study_description || currentImage.studyDescription || 'Ultrasound Study',
+                institution: this.hospitalSettings?.hospital_name || 'Medical Imaging Center'
+            };
+
+            // Load PCPNDT settings from localStorage or server
+            let pcpndtSettings = {
+                paperSize: 'A5',
+                colorMode: 'color'
+            };
+
+            const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
+            try {
+                const response = await fetch(`${basePath}/api/settings/get-settings.php`);
+                const data = await response.json();
+                if (data.success && data.settings) {
+                    pcpndtSettings.paperSize = data.settings.pcpndt_default_paper_size || 'A5';
+                    pcpndtSettings.colorMode = data.settings.pcpndt_default_color_mode || 'color';
+                }
+            } catch (e) {
+                console.warn('Error loading PCPNDT settings:', e);
+            }
+
+            this.updateLoadingProgress('Generating Form F...', 50);
+
+            const formHTML = this.generatePcpndtFormHTML(patientInfo, pcpndtSettings, previewOnly);
+
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (!printWindow) {
+                throw new Error('Please allow popups to print');
+            }
+
+            printWindow.document.write(formHTML);
+            printWindow.document.close();
+
+            this.updateLoadingProgress('Complete!', 100);
+
+            if (!previewOnly) {
+                setTimeout(() => {
+                    printWindow.print();
+                }, 500);
+            }
+        } catch (error) {
+            console.error('PCPNDT print error:', error);
+            throw error;
+        } finally {
+            this.hideLoadingModal();
+        }
+    }
+
+    generatePcpndtFormHTML(patientInfo, settings, previewOnly) {
+        const isA4 = settings.paperSize === 'A4';
+        const isGrayscale = settings.colorMode === 'grayscale';
+
+        return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PCPNDT Form F - ${patientInfo.name}</title>
+    <style>
+        @page {
+            size: ${settings.paperSize} portrait;
+            margin: 10mm;
+        }
+
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            ${isGrayscale ? '* { filter: grayscale(100%); -webkit-filter: grayscale(100%); }' : ''}
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Times New Roman', serif;
+            font-size: ${isA4 ? '12pt' : '10pt'};
+            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+            color: #000;
+            ${isGrayscale ? 'filter: grayscale(100%);' : ''}
+        }
+
+        .print-toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 15px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .print-toolbar h4 { color: #fff; margin: 0; font-size: 16px; }
+        .btn-print { background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%); color: white; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: 600; margin-right: 10px; }
+        .btn-close { background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; }
+
+        .form-container {
+            width: ${isA4 ? '190mm' : '128mm'};
+            min-height: ${isA4 ? '277mm' : '190mm'};
+            padding: 8mm;
+            margin: ${previewOnly ? '60px auto 20px' : '0 auto'};
+            background: #fff;
+            box-shadow: ${previewOnly ? '0 4px 20px rgba(0,0,0,0.4)' : 'none'};
+        }
+
+        .form-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: ${isA4 ? '14pt' : '11pt'};
+            margin-bottom: 10px;
+            border-bottom: 2px solid #000;
+            padding-bottom: 5px;
+        }
+
+        .form-subtitle {
+            text-align: center;
+            font-size: ${isA4 ? '10pt' : '8pt'};
+            margin-bottom: 15px;
+            color: #666;
+        }
+
+        .form-section {
+            margin-bottom: 10px;
+        }
+
+        .form-row {
+            display: flex;
+            margin-bottom: 5px;
+            font-size: ${isA4 ? '11pt' : '9pt'};
+        }
+
+        .form-label {
+            min-width: 35%;
+            font-weight: 500;
+        }
+
+        .form-value {
+            flex: 1;
+            border-bottom: 1px dotted #999;
+            padding-left: 5px;
+        }
+
+        .declaration {
+            margin-top: 15px;
+            padding: 8px;
+            border: 1px solid #000;
+            font-size: ${isA4 ? '10pt' : '8pt'};
+        }
+
+        .signature-section {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .signature-box {
+            text-align: center;
+            width: 45%;
+        }
+
+        .signature-line {
+            border-top: 1px solid #000;
+            margin-top: 40px;
+            padding-top: 5px;
+            font-size: ${isA4 ? '10pt' : '8pt'};
+        }
+
+        .footer-note {
+            margin-top: 15px;
+            font-size: ${isA4 ? '9pt' : '7pt'};
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    ${previewOnly ? `
+    <div class="print-toolbar no-print">
+        <h4>📋 PCPNDT Form F - Preview</h4>
+        <div>
+            <button class="btn-print" onclick="window.print()">🖨️ Print Now</button>
+            <button class="btn-close" onclick="window.close()">✕ Close</button>
+        </div>
+    </div>
+    ` : ''}
+
+    <div class="form-container">
+        <div class="form-title">FORM F</div>
+        <div class="form-subtitle">
+            (As per Rule 9(4) read with Section 5(2) of the Pre-Conception and Pre-Natal Diagnostic Techniques<br>
+            (Prohibition of Sex Selection) Act, 1994 and Rules thereunder)
+        </div>
+
+        <div class="form-section">
+            <div class="form-row">
+                <span class="form-label">1. Name of Centre/Hospital:</span>
+                <span class="form-value">${patientInfo.institution}</span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">2. Registration No. under PCPNDT:</span>
+                <span class="form-value"></span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">3. Name of Patient:</span>
+                <span class="form-value">${patientInfo.name}</span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">4. Patient ID:</span>
+                <span class="form-value">${patientInfo.id}</span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">5. Age/Sex:</span>
+                <span class="form-value">${patientInfo.age} / ${patientInfo.sex}</span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">6. Date of Procedure:</span>
+                <span class="form-value">${patientInfo.studyDate}</span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">7. Type of Procedure:</span>
+                <span class="form-value">${patientInfo.studyDescription}</span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">8. Indication for Procedure:</span>
+                <span class="form-value"></span>
+            </div>
+            <div class="form-row">
+                <span class="form-label">9. Referral (if any):</span>
+                <span class="form-value"></span>
+            </div>
+        </div>
+
+        <div class="declaration">
+            <strong>DECLARATION</strong><br>
+            I hereby declare that while conducting ultrasonography/image scanning on ${patientInfo.name} 
+            I have neither detected nor disclosed the sex of foetus to anybody in any manner.
+        </div>
+
+        <div class="signature-section">
+            <div class="signature-box">
+                <div class="signature-line">Signature of Patient/Guardian</div>
+            </div>
+            <div class="signature-box">
+                <div class="signature-line">Signature of Doctor/Sonologist</div>
+            </div>
+        </div>
+
+        <div class="footer-note">
+            This form is maintained as per PCPNDT Act, 1994 | Printed: ${new Date().toLocaleString()}
+        </div>
+    </div>
+</body>
+</html>
+        `;
     }
 
     showToast(message, type = 'info') {

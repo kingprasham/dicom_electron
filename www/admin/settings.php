@@ -1,7 +1,7 @@
 <?php
 /**
- * System Settings Page
- * Comprehensive settings management for hospital administrators
+ * System Settings Page - Redirects to new settings structure
+ * This file now redirects to the reorganized settings pages
  */
 define('DICOM_VIEWER', true);
 require_once __DIR__ . '/../includes/config.php';
@@ -16,6 +16,11 @@ if (!isAdmin()) {
     exit;
 }
 
+// Redirect to new General Settings page
+header('Location: ' . BASE_PATH . '/admin/general-settings.php');
+exit;
+
+// Legacy code below kept for reference - not executed
 $userName = $_SESSION['username'] ?? 'Admin';
 
 /**

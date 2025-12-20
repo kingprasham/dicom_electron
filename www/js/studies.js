@@ -47,6 +47,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         return;
     }
     loadStudies(patientId);
+
+    // Start tour if coming from patients page tour (only if not already skipped)
+    if (urlParams.get('tour') === '1' && !localStorage.getItem('fullTourSkipped')) {
+        setTimeout(() => startStudiesTour(), 1500);
+    }
 });
 
 async function loadStudies(patientId) {
@@ -1083,4 +1088,145 @@ Are you sure you want to proceed?`;
         btn.innerHTML = originalHTML;
         updateMergeButton();
     }
+}
+
+// ========== TOUR FUNCTIONALITY ==========
+
+const studiesTourSteps = [
+    {
+        title: 'Studies Page',
+        icon: 'bi-journal-medical',
+        content: `
+            <p>Welcome to the Studies page! Here you can view all imaging studies for the selected patient.</p>
+        `
+    },
+    {
+        element: '.studies-table',
+        title: 'Studies List',
+        icon: 'bi-table',
+        content: `
+            <p>Each row shows a study with its description, date, modality, and image count.</p>
+            <p>Use the action buttons to view images, export, add remarks, or check reports.</p>
+        `,
+        position: 'top'
+    },
+    {
+        element: '.btn-primary',
+        title: 'View Images',
+        icon: 'bi-eye',
+        content: `
+            <p>Click <strong>View</strong> to open the study in the full DICOM Viewer where you can:</p>
+            <ul>
+                <li>Browse all images</li>
+                <li>Adjust window/level</li>
+                <li>Make measurements</li>
+                <li>Create reports</li>
+            </ul>
+        `,
+        position: 'left'
+    },
+    {
+        element: '#mergeStudiesBtn',
+        title: 'Merge Studies',
+        icon: 'bi-layers',
+        content: `
+            <p>Select multiple studies using checkboxes and merge them for combined viewing.</p>
+        `,
+        position: 'bottom'
+    },
+    {
+        title: 'Ready to View Images!',
+        icon: 'bi-check-circle-fill',
+        content: `
+            <p>You're all set! Click <strong>View</strong> on any study to open the DICOM Viewer.</p>
+            <p>Let's continue to learn the viewer features. 🎉</p>
+        `
+    }
+];
+
+function startStudiesTour() {
+    if (typeof AppTour === 'undefined') {
+        console.warn('AppTour not loaded');
+        return;
+    }
+
+    window.studiesTour = new AppTour({
+        onComplete: () => {
+            localStorage.setItem('studiesTourCompleted', 'true');
+            showViewerContinueModal();
+        },
+        onSkip: () => {
+            localStorage.setItem('studiesTourCompleted', 'true');
+            localStorage.setItem('fullTourSkipped', 'true');
+            // Clean URL
+            const url = new URL(window.location);
+            url.searchParams.delete('tour');
+            window.history.replaceState({}, '', url);
+        }
+    });
+    // Set window.appTour so tour buttons work (they reference window.appTour)
+    window.appTour = window.studiesTour;
+    window.studiesTour.setSteps(studiesTourSteps).start();
+}
+
+function showViewerContinueModal() {
+    const modalHTML = `
+        <div class="modal fade" id="viewerContinueModal" tabindex="-1" data-bs-backdrop="static">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border: 2px solid #00d9ff;">
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title text-white">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            Studies Page Complete!
+                        </h5>
+                    </div>
+                    <div class="modal-body text-center py-4">
+                        <i class="bi bi-display text-info" style="font-size: 4rem;"></i>
+                        <h4 class="text-white mt-3">Final Step: DICOM Viewer</h4>
+                        <p class="text-muted">Now let's explore the image viewer with all its powerful features!</p>
+                    </div>
+                    <div class="modal-footer border-0 justify-content-center gap-3">
+                        <button type="button" class="btn btn-outline-secondary" onclick="finishTutorial()">
+                            <i class="bi bi-x-lg me-2"></i>Finish Tutorial
+                        </button>
+                        <button type="button" class="btn btn-primary btn-lg" onclick="openViewerWithTour()">
+                            <i class="bi bi-display me-2"></i>Open Viewer Tour
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    new bootstrap.Modal(document.getElementById('viewerContinueModal')).show();
+}
+
+function openViewerWithTour() {
+    // Get first study to open viewer
+    const firstViewBtn = document.querySelector('.btn-primary[onclick*="openStudy"]');
+    if (firstViewBtn) {
+        const onclick = firstViewBtn.getAttribute('onclick');
+        const match = onclick.match(/openStudy\('([^']+)',\s*'([^']+)'\)/);
+        if (match) {
+            const studyUID = match[1];
+            const orthancId = match[2];
+            window.location.href = `../index.php?study_id=${encodeURIComponent(orthancId)}&studyUID=${encodeURIComponent(studyUID)}&tour=1`;
+            return;
+        }
+    }
+    // Fallback
+    finishTutorial();
+}
+
+function finishTutorial() {
+    localStorage.setItem('fullTourCompleted', 'true');
+    const modal = bootstrap.Modal.getInstance(document.getElementById('viewerContinueModal'));
+    if (modal) modal.hide();
+    document.getElementById('viewerContinueModal')?.remove();
+
+    // Clean URL
+    const url = new URL(window.location);
+    url.searchParams.delete('tour');
+    window.history.replaceState({}, '', url);
 }

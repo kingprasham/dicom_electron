@@ -115,9 +115,147 @@ function loginUser($username, $password) {
         if ($result->num_rows === 1) {
             $user = $result->fetch_assoc();
 
+            // DEBUG: Log what we got from database
+            error_log("LOGIN: Found user in database");
+            error_log("LOGIN: User ID = " . $user['id']);
+            error_log("LOGIN: Username = " . $user['username']);
+            error_log("LOGIN: Role from DB = " . ($user['role'] ?? 'NULL'));
+            error_log("LOGIN: Full name = " . ($user['full_name'] ?? 'NULL'));
+
             // Verify password
             if (password_verify($password, $user['password_hash'])) {
                 // Password is correct - create session
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['full_name'] = $user['full_name'];
+                $_SESSION['email'] = $user['email'];
+                $_SESSION['role'] = $user['role'];
+                $_SESSION['last_activity'] = time();
+
+                // DEBUG: Verify session was set
+                error_log("LOGIN: Session created");
+                error_log("LOGIN: Session user_id = " . $_SESSION['user_id']);
+                error_log("LOGIN: Session username = " . $_SESSION['username']);
+                error_log("LOGIN: Session role = " . ($_SESSION['role'] ?? 'NOT SET'));
+
+                // Update last login time
+                $updateStmt = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ?");
+                $updateStmt->bind_param("i", $user['id']);
+                $updateStmt->execute();
+                $updateStmt->close();
+
+                // Create session record in database
+                $sessionId = session_id();
+                $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+                $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+                $expiresAt = date('Y-m-d H:i:s', time() + SESSION_LIFETIME);
+
+                $sessionStmt = $db->prepare("
+                    INSERT INTO sessions (session_id, user_id, ip_address, user_agent, expires_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ");
+                $sessionStmt->bind_param("sisss", $sessionId, $user['id'], $ipAddress, $userAgent, $expiresAt);
+                $sessionStmt->execute();
+                $_SESSION['session_db_id'] = $sessionStmt->insert_id;
+                $sessionStmt->close();
+
+                // Log successful login
+                logAuditEvent($user['id'], 'login', 'user', $user['id'], "User {$user['username']} logged in successfully");
+                logMessage("User {$user['username']} logged in successfully", 'info', 'auth.log');
+
+                $stmt->close();
+
+                return [
+                    'success' => true,
+                    'user' => [
+                        'id' => $user['id'],
+                        'username' => $user['username'],
+                        'full_name' => $user['full_name'],
+                        'email' => $user['email'],
+                        'role' => $user['role']
+                    ]
+                ];
+            } else {
+                // Invalid password
+                logMessage("Failed login attempt for username: {$username} - Invalid password", 'warning', 'auth.log');
+                $stmt->close();
+
+                return [
+                    'success' => false,
+                    'error' => 'Invalid username or password'
+                ];
+            }
+        } else {
+            // User not found
+            logMessage("Failed login attempt for username: {$username} - User not found", 'warning', 'auth.log');
+            $stmt->close();
+
+            return [
+                'success' => false,
+                'error' => 'Invalid username or password'
+            ];
+        }
+    } catch (Exception $e) {
+        logMessage("Login error: " . $e->getMessage(), 'error', 'auth.log');
+
+        return [
+            'success' => false,
+            'error' => 'An error occurred during login. Please try again.'
+        ];
+    }
+}
+
+/**
+ * User Login with 2FA Check
+ *
+ * @param string $username Username
+ * @param string $password Password
+ * @return array Result array with success status, user data, or 2FA requirement
+ */
+function loginUserWith2FA($username, $password) {
+    try {
+        $db = getDbConnection();
+
+        // Prepare statement to prevent SQL injection
+        // Check both username and email for flexibility
+        // Also fetch 2FA columns
+        $stmt = $db->prepare("
+            SELECT id, username, password_hash, full_name, email, role, is_active, totp_enabled, totp_secret
+            FROM users
+            WHERE (username = ? OR email = ?) AND is_active = 1
+        ");
+
+        $stmt->bind_param("ss", $username, $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 1) {
+            $user = $result->fetch_assoc();
+
+            // Verify password
+            if (password_verify($password, $user['password_hash'])) {
+                $stmt->close();
+                
+                // Check if 2FA is enabled
+                if ($user['totp_enabled'] && !empty($user['totp_secret'])) {
+                    // 2FA is enabled - store pending state and require 2FA verification
+                    $_SESSION['pending_2fa_user_id'] = $user['id'];
+                    $_SESSION['pending_2fa_user_data'] = [
+                        'username' => $user['username'],
+                        'full_name' => $user['full_name'],
+                        'email' => $user['email'],
+                        'role' => $user['role']
+                    ];
+                    
+                    logMessage("User {$user['username']} entered credentials, awaiting 2FA", 'info', 'auth.log');
+                    
+                    return [
+                        'success' => true,
+                        'requires_2fa' => true
+                    ];
+                }
+                
+                // No 2FA - proceed with normal login
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['username'] = $user['username'];
                 $_SESSION['full_name'] = $user['full_name'];
@@ -149,8 +287,6 @@ function loginUser($username, $password) {
                 // Log successful login
                 logAuditEvent($user['id'], 'login', 'user', $user['id'], "User {$user['username']} logged in successfully");
                 logMessage("User {$user['username']} logged in successfully", 'info', 'auth.log');
-
-                $stmt->close();
 
                 return [
                     'success' => true,
@@ -281,10 +417,10 @@ function requireRole($roles, $redirect_url = '/403.php') {
 /**
  * Check if user is admin
  *
- * @return bool True if admin
+ * @return bool True if admin or super_admin
  */
 function isAdmin() {
-    return hasRole('admin');
+    return hasRole(['admin', 'super_admin']);
 }
 
 /**

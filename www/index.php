@@ -2,9 +2,27 @@
 // Start session and check authentication
 define('DICOM_VIEWER', true);
 require_once __DIR__ . '/auth/session.php';
+require_once __DIR__ . '/includes/LicenseManager.php';
 
 // Redirect to login if not authenticated
 requireLogin();
+
+// Check license validity
+$licenseManager = new LicenseManager();
+$licenseStatus = $licenseManager->checkLocalLicense();
+
+if (!$licenseStatus['valid']) {
+    // No valid license - redirect to activation
+    header('Location: ' . BASE_PATH . '/activate-license.php');
+    exit;
+}
+
+// If license needs online check, try to validate
+if ($licenseStatus['needs_online_check'] && !$licenseStatus['grace_ok']) {
+    // Grace period expired - require online validation
+    header('Location: ' . BASE_PATH . '/activate-license.php?revalidate=1');
+    exit;
+}
 
 // Redirect to dashboard if no study selected (optional, but good UX)
 if (empty($_GET['study_id']) && empty($_GET['series_id']) && empty($_GET['studyUID']) && empty($_GET['orthancId'])) {
@@ -2517,4 +2535,91 @@ $userRole = $_SESSION['role'] ?? 'viewer';
     </script>
 </body>
 
+    <!-- App Tour for Viewer -->
+    <script src="<?= BASE_PATH ?>/assets/js/app-tour.js"></script>
+    <script>
+        // Viewer Tour Steps
+        const viewerTourSteps = [
+            {
+                title: 'Welcome to the DICOM Viewer!',
+                icon: 'bi-display',
+                content: '<p>This is your full-featured medical image viewer.</p><p>Let us show you the powerful tools available!</p>'
+            },
+            {
+                element: '#viewport-container',
+                title: 'Viewport Area',
+                icon: 'bi-image',
+                content: '<p>This is where your medical images are displayed.</p><p>You can view multiple images in grid layouts!</p>',
+                position: 'left'
+            },
+            {
+                element: '.image-thumbnails, .series-list-container',
+                title: 'Image Navigator',
+                icon: 'bi-images',
+                content: '<p>Browse through all images in this panel.</p><p>Click any thumbnail to view it in the main viewport.</p>',
+                position: 'right'
+            },
+            {
+                element: '#layoutBtn, .layout-controls',
+                title: 'Layout Controls',
+                icon: 'bi-grid',
+                content: '<p>Change the viewport layout (1x1, 2x2, 3x3, etc.)</p><p>View multiple images side by side!</p>',
+                position: 'bottom'
+            },
+            {
+                element: '#printBtn, .print-controls',
+                title: 'Print Images',
+                icon: 'bi-printer',
+                content: '<p>Print medical images with professional formatting.</p><p>Supports multiple layouts and paper sizes.</p>',
+                position: 'bottom'
+            },
+            {
+                element: '#medicalReportBtn, .report-controls',
+                title: 'Medical Reports',
+                icon: 'bi-file-earmark-medical',
+                content: '<p>Create detailed medical reports with findings, impressions, and more.</p>',
+                position: 'bottom'
+            },
+            {
+                title: 'Tutorial Complete! 🎉',
+                icon: 'bi-check-circle-fill',
+                content: '<p>You now know the basics of the DICOM Viewer!</p><p>Explore the tools and features to become a power user.</p>'
+            }
+        ];
+
+        // Start viewer tour if coming from studies page (only if not already skipped)
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('tour') === '1' && !localStorage.getItem('fullTourSkipped')) {
+                // Wait for viewer to fully load
+                setTimeout(() => {
+                    if (typeof AppTour !== 'undefined') {
+                        const viewerTour = new AppTour({
+                            onComplete: () => {
+                                localStorage.setItem('viewerTourCompleted', 'true');
+                                localStorage.setItem('fullTourCompleted', 'true');
+                                // Clean URL
+                                const url = new URL(window.location);
+                                url.searchParams.delete('tour');
+                                window.history.replaceState({}, '', url);
+                                // Show completion message
+                                if (window.DICOM_VIEWER?.showToast) {
+                                    window.DICOM_VIEWER.showToast('🎉 Tutorial complete! You are ready to use the viewer.', 'success');
+                                }
+                            },
+                            onSkip: () => {
+                                localStorage.setItem('fullTourSkipped', 'true');
+                                const url = new URL(window.location);
+                                url.searchParams.delete('tour');
+                                window.history.replaceState({}, '', url);
+                            }
+                        });
+                        // Set window.appTour so tour buttons work
+                        window.appTour = viewerTour;
+                        viewerTour.setSteps(viewerTourSteps).start();
+                    }
+                }, 2000);
+            }
+        });
+    </script>
 </html>

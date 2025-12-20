@@ -160,10 +160,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get all users
+// Get all users (exclude super admin - they stay hidden)
 $users = $mysqli->query("
     SELECT id, username, full_name, email, role, is_active, last_login, created_at
     FROM users
+    WHERE is_super_admin = 0 OR is_super_admin IS NULL
     ORDER BY role, username
 ")->fetch_all(MYSQLI_ASSOC);
 
