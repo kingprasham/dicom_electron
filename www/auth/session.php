@@ -32,10 +32,22 @@ if (session_status() === PHP_SESSION_NONE) {
 /**
  * Check if user is logged in
  *
- * @return bool True if logged in
+ * @return bool True if logged in and session not expired
  */
 function isLoggedIn() {
-    return isset($_SESSION['user_id']) && $_SESSION['user_id'] > 0;
+    // First check if basic session data exists
+    if (!isset($_SESSION['user_id']) || $_SESSION['user_id'] <= 0) {
+        return false;
+    }
+    
+    // Check if session has expired (based on last_activity)
+    if (isSessionExpired()) {
+        // Session expired - log out the user (pass true to avoid recursion)
+        logoutUser(true);
+        return false;
+    }
+    
+    return true;
 }
 
 /**
@@ -333,35 +345,59 @@ function loginUserWith2FA($username, $password) {
 
 /**
  * User Logout
+ * @param bool $fromExpiry If true, this logout was triggered by session expiry (avoid recursion)
  */
-function logoutUser() {
-    if (isLoggedIn()) {
+function logoutUser($fromExpiry = false) {
+    // Check if we have a user session (without calling isLoggedIn to avoid recursion)
+    $hasSession = isset($_SESSION['user_id']) && $_SESSION['user_id'] > 0;
+    
+    if ($hasSession) {
         $userId = $_SESSION['user_id'];
-        $username = $_SESSION['username'];
+        $username = $_SESSION['username'] ?? 'unknown';
 
-        // Delete session from database
-        if (isset($_SESSION['session_db_id'])) {
-            try {
-                $db = getDbConnection();
-                $stmt = $db->prepare("DELETE FROM sessions WHERE id = ?");
-                $stmt->bind_param("i", $_SESSION['session_db_id']);
-                $stmt->execute();
-                $stmt->close();
-            } catch (Exception $e) {
-                logMessage("Failed to delete session from database: " . $e->getMessage(), 'error', 'auth.log');
-            }
+        // Delete ALL sessions for this user from database (complete logout)
+        try {
+            $db = getDbConnection();
+            $stmt = $db->prepare("DELETE FROM sessions WHERE user_id = ?");
+            $stmt->bind_param("i", $userId);
+            $stmt->execute();
+            $stmt->close();
+        } catch (Exception $e) {
+            logMessage("Failed to delete sessions from database: " . $e->getMessage(), 'error', 'auth.log');
         }
 
-        // Log logout
-        logAuditEvent($userId, 'logout', 'user', $userId, "User {$username} logged out");
-        logMessage("User {$username} logged out", 'info', 'auth.log');
+        // Log logout (only if not from expiry to avoid duplicate logs)
+        if (!$fromExpiry) {
+            logAuditEvent($userId, 'logout', 'user', $userId, "User {$username} logged out");
+            logMessage("User {$username} logged out", 'info', 'auth.log');
+        } else {
+            logMessage("User {$username} session expired", 'info', 'auth.log');
+        }
     }
 
-    // Destroy session
+    // Clear all session data
     $_SESSION = [];
-    session_destroy();
-
-    // Delete session cookie
+    
+    // Delete the session cookie by setting expiry in the past
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(
+            session_name(),
+            '',
+            time() - 42000,
+            $params["path"],
+            $params["domain"],
+            $params["secure"],
+            $params["httponly"]
+        );
+    }
+    
+    // Destroy the session
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_destroy();
+    }
+    
+    // Also delete any custom session cookie
     if (isset($_COOKIE[SESSION_NAME])) {
         setcookie(SESSION_NAME, '', time() - 3600, '/');
     }

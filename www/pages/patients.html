@@ -80,9 +80,38 @@
             background: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 15px;
-            overflow: hidden;
             margin-top: 20px;
             backdrop-filter: blur(10px);
+            /* Remove overflow:hidden to allow dropdowns to show properly */
+            overflow: visible;
+        }
+
+        /* Fix for table border radius when overflow is visible */
+        .patients-table {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+
+        .patients-table thead tr:first-child th:first-child {
+            border-top-left-radius: 14px;
+        }
+
+        .patients-table thead tr:first-child th:last-child {
+            border-top-right-radius: 14px;
+        }
+
+        .patients-table tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 14px;
+        }
+
+        .patients-table tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 14px;
+        }
+
+        /* Ensure dropdown shows above table content */
+        .patients-table .dropdown-menu {
+            z-index: 1050;
+            position: absolute;
         }
 
         .patients-table {

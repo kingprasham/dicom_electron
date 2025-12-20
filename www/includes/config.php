@@ -78,7 +78,7 @@ define('ORTHANC_PASS', ORTHANC_PASSWORD);
 // =====================================================
 // Session Configuration
 // =====================================================
-define('SESSION_LIFETIME', (int)(getenv('SESSION_LIFETIME') ?: 1800));
+define('SESSION_LIFETIME', (int)(getenv('SESSION_LIFETIME') ?: 600)); // 10 minutes
 define('SESSION_SECURE', filter_var(getenv('SESSION_SECURE') ?: 'false', FILTER_VALIDATE_BOOLEAN));
 define('SESSION_NAME', getenv('SESSION_NAME') ?: 'DICOM_DESKTOP_SESSION');
 
