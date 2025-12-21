@@ -382,7 +382,8 @@ window.DICOM_VIEWER.PrintCounterBadge = class {
 
         const counts = data.counts || {};
         const oldCount = parseInt(countEl.querySelector('.count')?.textContent || '0');
-        const newCount = counts.total || 0;
+        // Show only completed prints in total
+        const newCount = counts.completed || 0;
 
         // Update main count with animation if changed
         if (newCount !== oldCount) {
@@ -391,24 +392,20 @@ window.DICOM_VIEWER.PrintCounterBadge = class {
             setTimeout(() => badge?.classList.remove('updating'), 500);
         }
 
-        // Update dropdown details
+        // Update dropdown details - simplified to show Images and Reports
         if (detailsEl) {
             detailsEl.innerHTML = `
                 <div class="stat-row">
-                    <span class="label"><i class="bi bi-check-circle me-2"></i>Completed</span>
-                    <span class="value success">${counts.completed || 0}</span>
+                    <span class="label"><i class="bi bi-file-earmark-image me-2"></i>Images</span>
+                    <span class="value info">${counts.images || 0}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="label"><i class="bi bi-hourglass-split me-2"></i>Pending</span>
-                    <span class="value warning">${counts.pending || 0}</span>
+                    <span class="label"><i class="bi bi-file-text me-2"></i>Reports</span>
+                    <span class="value success">${counts.reports || 0}</span>
                 </div>
                 <div class="stat-row">
-                    <span class="label"><i class="bi bi-x-circle me-2"></i>Failed</span>
-                    <span class="value danger">${counts.failed || 0}</span>
-                </div>
-                <div class="stat-row">
-                    <span class="label"><i class="bi bi-file-earmark me-2"></i>Total Pages</span>
-                    <span class="value info">${counts.pages || 0}</span>
+                    <span class="label"><i class="bi bi-files me-2"></i>Total Pages</span>
+                    <span class="value">${counts.pages || 0}</span>
                 </div>
                 <div class="stat-row stat-total">
                     <span class="label"><i class="bi bi-currency-rupee me-2"></i>Revenue</span>

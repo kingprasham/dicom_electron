@@ -2828,7 +2828,17 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
         document.getElementById('save-report-btn')?.addEventListener('click', () => this.saveReport());
 
         // Print button
-        document.getElementById('print-report-btn')?.addEventListener('click', () => this.printReport());
+        const printBtn = document.getElementById('print-report-btn');
+        console.log('[DEBUG REPORT] Print button element:', printBtn);
+        if (printBtn) {
+            printBtn.addEventListener('click', () => {
+                console.log('[DEBUG REPORT] Print button CLICKED!');
+                this.printReport();
+            });
+            console.log('[DEBUG REPORT] Print button event listener attached');
+        } else {
+            console.warn('[DEBUG REPORT] print-report-btn NOT FOUND!');
+        }
 
         // Measurement section events
         this.attachMeasurementEvents();
@@ -3364,6 +3374,38 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
     }
 
     async printReport() {
+        console.log('[DEBUG REPORT] printReport() called');
+
+        // Track the report print FIRST, before opening print window
+        try {
+            console.log('[DEBUG REPORT] Checking for PrintManager...');
+            console.log('[DEBUG REPORT] window.DICOM_VIEWER:', window.DICOM_VIEWER);
+            console.log('[DEBUG REPORT] window.DICOM_VIEWER?.MANAGERS:', window.DICOM_VIEWER?.MANAGERS);
+            console.log('[DEBUG REPORT] window.DICOM_VIEWER?.MANAGERS?.printManager:', window.DICOM_VIEWER?.MANAGERS?.printManager);
+
+            const printManager = window.DICOM_VIEWER?.MANAGERS?.printManager;
+            if (printManager) {
+                console.log('[DEBUG REPORT] PrintManager found, calling trackPrint...');
+                const result = await printManager.trackPrint({
+                    printType: 'report',
+                    paperSize: 'A4',
+                    orientation: 'portrait',
+                    colorMode: 'grayscale',
+                    quality: 'high',
+                    layoutType: 'report',
+                    totalPages: 1,
+                    includePatientInfo: true,
+                    includeAnnotations: false,
+                    includeMeasurements: true
+                });
+                console.log('[DEBUG REPORT] trackPrint result:', result);
+            } else {
+                console.warn('[DEBUG REPORT] PrintManager not available!');
+            }
+        } catch (error) {
+            console.error('[DEBUG REPORT] Failed to track report print:', error);
+        }
+
         const formData = this.collectFormData();
         const hospital = this.hospitalSettings || {};
 

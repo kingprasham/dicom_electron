@@ -176,13 +176,14 @@ window.DICOM_VIEWER.PrintTracker = class PrintTracker {
             printer_name: printData.printer_name || 'Default',
             printer_type: printData.printer_type || 'local',
             layout_type: printData.layout_type || '1x1',
+            print_type: printData.print_type || 'image', // 'image' or 'report'
             include_patient_info: printData.include_patient_info ?? 1,
             include_annotations: printData.include_annotations ?? 1,
             include_measurements: printData.include_measurements ?? 1,
             // Location tracking for billing
             location_id: this.locationInfo?.location_id || null,
             activation_id: this.activationId || null,
-            status: 'queued',
+            status: 'completed', // Set as completed since browser can't track actual print status
             created_at: new Date().toISOString()
         };
 

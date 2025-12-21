@@ -70,6 +70,7 @@ window.DICOM_VIEWER.PrintManager = class {
                 printer_name: printInfo.printerName || this.getSelectedPrinterName() || 'Default',
                 printer_type: printInfo.printerType || 'local',
                 layout_type: printInfo.layoutType || '1x1',
+                print_type: printInfo.printType || 'image', // 'image' or 'report'
                 include_patient_info: printInfo.includePatientInfo ?? (this.printSettings?.includePatientInfo ? 1 : 0),
                 include_annotations: printInfo.includeAnnotations ?? (this.printSettings?.includeAnnotations ? 1 : 0),
                 include_measurements: printInfo.includeMeasurements ?? (this.printSettings?.includeMeasurements ? 1 : 0)
@@ -794,11 +795,11 @@ window.DICOM_VIEWER.PrintManager = class {
                 // Toggle layout options visibility
                 const allImagesOptions = document.getElementById('allImagesOptions');
                 if (this.dataset.type === 'allImages') {
-                    allImagesOptions.style.display = 'block';
+                    if (allImagesOptions) allImagesOptions.style.display = 'block';
                     const selectedLayout = document.querySelector('.layout-option.selected')?.dataset.layout || '2x2';
                     updatePageCalculation(selectedLayout);
                 } else {
-                    allImagesOptions.style.display = 'none';
+                    if (allImagesOptions) allImagesOptions.style.display = 'none';
                 }
             });
         });
@@ -2404,6 +2405,8 @@ window.DICOM_VIEWER.PrintManager = class {
     }
 
     async printReport(reportId, previewOnly = false) {
+        console.log('[DEBUG REPORT] PrintManager.printReport called, reportId:', reportId, 'previewOnly:', previewOnly);
+
         try {
             const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
             const response = await fetch(`${basePath}/api/reports/by-id.php?id=${reportId}`);
@@ -2425,6 +2428,22 @@ window.DICOM_VIEWER.PrintManager = class {
             printWindow.document.close();
 
             if (!previewOnly) {
+                // Track report print BEFORE triggering print dialog
+                console.log('[DEBUG REPORT] Tracking report print...');
+                await this.trackPrint({
+                    printType: 'report',
+                    paperSize: 'A4',
+                    orientation: 'portrait',
+                    colorMode: 'grayscale',
+                    quality: 'high',
+                    layoutType: 'report',
+                    totalPages: 1,
+                    includePatientInfo: true,
+                    includeAnnotations: false,
+                    includeMeasurements: true
+                });
+                console.log('[DEBUG REPORT] Report print tracked!');
+
                 setTimeout(() => printWindow.print(), 500);
             }
 
@@ -2623,10 +2642,41 @@ window.DICOM_VIEWER.PrintManager = class {
     <div class="print-toolbar no-print">
         <h4>Medical Report Preview</h4>
         <div>
-            <button class="btn-print" onclick="window.print()">Print Report</button>
+            <button class="btn-print" onclick="trackAndPrint()">Print Report</button>
             <button class="btn-close" onclick="window.close()">Close</button>
         </div>
     </div>
+    <script>
+        async function trackAndPrint() {
+            console.log('[DEBUG REPORT PREVIEW] trackAndPrint called');
+            try {
+                // Access parent window's PrintManager to track the print
+                const parentPrintManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
+                console.log('[DEBUG REPORT PREVIEW] parentPrintManager:', parentPrintManager);
+                
+                if (parentPrintManager) {
+                    await parentPrintManager.trackPrint({
+                        printType: 'report',
+                        paperSize: 'A4',
+                        orientation: 'portrait',
+                        colorMode: 'grayscale',
+                        quality: 'high',
+                        layoutType: 'report',
+                        totalPages: 1,
+                        includePatientInfo: true,
+                        includeAnnotations: false,
+                        includeMeasurements: true
+                    });
+                    console.log('[DEBUG REPORT PREVIEW] Report tracked successfully');
+                } else {
+                    console.warn('[DEBUG REPORT PREVIEW] PrintManager not available in parent window');
+                }
+            } catch (error) {
+                console.error('[DEBUG REPORT PREVIEW] Error tracking report print:', error);
+            }
+            window.print();
+        }
+    </script>
     ` : ''}
 
     <div class="report-content">

@@ -100,10 +100,10 @@ class PrintTracker {
                 study_uid, patient_id, patient_name,
                 paper_size, orientation, copies, pages_per_copy, total_pages,
                 color_mode, quality, printer_name, printer_type,
-                layout_type, include_patient_info, include_annotations, include_measurements,
+                layout_type, print_type, include_patient_info, include_annotations, include_measurements,
                 status, is_offline_print, offline_queue_id,
                 cost_per_page, total_cost, billable
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         $copies = $printData['copies'] ?? 1;
@@ -113,9 +113,10 @@ class PrintTracker {
         $isOffline = $printData['is_offline'] ?? 0;
         $offlineQueueId = $printData['offline_queue_id'] ?? null;
         $billable = $printData['billable'] ?? 1;
+        $printType = $printData['print_type'] ?? 'image'; // 'image' or 'report'
 
         $stmt->bind_param(
-            "ssiissssssssiiisssssiiisssisd",
+            "ssiissssssssiiissssssiiisssisd",
             $this->licenseKey,
             $this->machineId,
             $this->activationId,
@@ -136,6 +137,7 @@ class PrintTracker {
             $printData['printer_name'],
             $printData['printer_type'],
             $printData['layout_type'],
+            $printType,
             $printData['include_patient_info'],
             $printData['include_annotations'],
             $printData['include_measurements'],

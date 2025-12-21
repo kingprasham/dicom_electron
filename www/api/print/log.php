@@ -72,6 +72,7 @@ function handlePost($db) {
         'printer_name' => $data['printer_name'] ?? 'Default',
         'printer_type' => $data['printer_type'] ?? 'local',
         'layout_type' => $data['layout_type'] ?? '1x1',
+        'print_type' => $data['print_type'] ?? 'image', // 'image' or 'report'
         'include_patient_info' => $data['include_patient_info'] ?? 1,
         'include_annotations' => $data['include_annotations'] ?? 1,
         'include_measurements' => $data['include_measurements'] ?? 1,
