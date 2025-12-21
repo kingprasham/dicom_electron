@@ -158,6 +158,7 @@ window.DICOM_VIEWER.PrintTracker = class PrintTracker {
      * @returns {Promise<Object>} Result with print_job_id
      */
     async logPrint(printData) {
+        console.log('[DEBUG PrintTracker] logPrint called with:', printData);
         const printJobId = printData.print_job_id || this.generatePrintJobId();
 
         const printRecord = {
@@ -185,19 +186,25 @@ window.DICOM_VIEWER.PrintTracker = class PrintTracker {
             created_at: new Date().toISOString()
         };
 
+        console.log('[DEBUG PrintTracker] printRecord created:', printRecord);
+        console.log('[DEBUG PrintTracker] isOnline:', this.isOnline);
+
         if (this.isOnline) {
             // Try to log directly to server
             try {
+                console.log('[DEBUG PrintTracker] Attempting logToServer...');
                 const result = await this.logToServer(printRecord);
+                console.log('[DEBUG PrintTracker] logToServer result:', result);
                 if (result.success) {
                     return result;
                 }
             } catch (error) {
-                console.warn('Server logging failed, queuing offline:', error);
+                console.warn('[DEBUG PrintTracker] Server logging failed, queuing offline:', error);
             }
         }
 
         // Queue for offline sync
+        console.log('[DEBUG PrintTracker] Queuing for offline sync');
         await this.queueOfflinePrint(printRecord);
         return {
             success: true,
@@ -211,17 +218,25 @@ window.DICOM_VIEWER.PrintTracker = class PrintTracker {
      * Log print to server
      */
     async logToServer(printData) {
-        const response = await fetch(`${this.basePath}/api/print/log.php`, {
+        const url = `${this.basePath}/api/print/log.php`;
+        console.log('[DEBUG PrintTracker] logToServer URL:', url);
+        console.log('[DEBUG PrintTracker] logToServer body:', JSON.stringify(printData));
+
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(printData)
         });
 
+        console.log('[DEBUG PrintTracker] logToServer response status:', response.status);
+
         if (!response.ok) {
             throw new Error(`Server error: ${response.status}`);
         }
 
-        return await response.json();
+        const json = await response.json();
+        console.log('[DEBUG PrintTracker] logToServer response JSON:', json);
+        return json;
     }
 
     /**

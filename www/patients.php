@@ -163,6 +163,18 @@ $stmt->close();
             backdrop-filter: blur(10px);
             border-bottom: 1px solid var(--card-border);
             padding: 1rem 0;
+            overflow: visible; /* Allow dropdowns to overflow */
+            position: relative;
+            z-index: 1100; /* Higher than search section to allow dropdowns to overlap */
+        }
+        
+        /* Ensure navbar container doesn't clip dropdowns */
+        .navbar-custom .container-fluid {
+            overflow: visible;
+        }
+        
+        .navbar-custom .d-flex {
+            overflow: visible;
         }
         
         .search-section {
@@ -728,6 +740,8 @@ $stmt->close();
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Print Counter Badge Component -->
+    <script src="<?= BASE_PATH ?>/js/components/print-counter-badge.js"></script>
     <script>
         // View Toggle Logic
         document.addEventListener('DOMContentLoaded', () => {

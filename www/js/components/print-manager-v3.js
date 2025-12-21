@@ -37,8 +37,16 @@ window.DICOM_VIEWER.PrintManager = class {
      * @returns {Promise<Object>} Tracking result
      */
     async trackPrint(printInfo) {
+        console.log('[DEBUG] trackPrint called with:', printInfo);
+
+        // Lazily get printTracker in case it wasn't ready during init()
         if (!this.printTracker) {
-            console.warn('PrintTracker not available');
+            this.printTracker = window.DICOM_VIEWER.printTracker;
+            console.log('[DEBUG] Fetched printTracker from window:', this.printTracker);
+        }
+
+        if (!this.printTracker) {
+            console.warn('[DEBUG] PrintTracker not available - window.DICOM_VIEWER.printTracker is:', window.DICOM_VIEWER.printTracker);
             return { success: false, error: 'Tracker not initialized' };
         }
 
@@ -46,6 +54,7 @@ window.DICOM_VIEWER.PrintManager = class {
             // Get current study/patient info
             const state = window.DICOM_VIEWER.STATE || {};
             const currentImage = state.currentSeriesImages?.[state.currentImageIndex] || {};
+            console.log('[DEBUG] Current state:', { state, currentImage });
 
             const trackingData = {
                 study_uid: currentImage.study_instance_uid || currentImage.studyInstanceUid || null,
@@ -66,16 +75,29 @@ window.DICOM_VIEWER.PrintManager = class {
                 include_measurements: printInfo.includeMeasurements ?? (this.printSettings?.includeMeasurements ? 1 : 0)
             };
 
+            console.log('[DEBUG] Calling printTracker.logPrint with:', trackingData);
+
             const result = await this.printTracker.logPrint(trackingData);
+            console.log('[DEBUG] printTracker.logPrint returned:', result);
 
             if (result.success) {
                 this.currentPrintJobId = result.print_job_id;
-                console.log('Print tracked:', result.print_job_id, result.offline ? '(offline)' : '');
+                console.log('[DEBUG] Print tracked successfully:', result.print_job_id, result.offline ? '(offline)' : '');
+
+                // Dispatch event for real-time badge update
+                document.dispatchEvent(new CustomEvent('printJobQueued', {
+                    detail: {
+                        print_job_id: result.print_job_id,
+                        cost: result.cost
+                    }
+                }));
+            } else {
+                console.warn('[DEBUG] Print tracking failed:', result);
             }
 
             return result;
         } catch (error) {
-            console.error('Failed to track print:', error);
+            console.error('[DEBUG] Failed to track print:', error);
             return { success: false, error: error.message };
         }
     }
@@ -90,6 +112,15 @@ window.DICOM_VIEWER.PrintManager = class {
 
         try {
             await this.printTracker.updatePrintStatus(this.currentPrintJobId, status, errorMessage);
+
+            // Dispatch event for real-time badge update
+            document.dispatchEvent(new CustomEvent('printJobCompleted', {
+                detail: {
+                    print_job_id: this.currentPrintJobId,
+                    status: status,
+                    error: errorMessage
+                }
+            }));
         } catch (error) {
             console.error('Failed to update print status:', error);
         }
@@ -1563,9 +1594,33 @@ window.DICOM_VIEWER.PrintManager = class {
 
             this.updateLoadingProgress('Complete!', 100);
 
+            // Track print for billing (only if not preview)
             if (!previewOnly) {
+                console.log('[DEBUG] printAllImages: Starting print tracking (previewOnly=false)');
+                const settings = this.getEffectivePrintSettings();
+
+                // Track the print BEFORE triggering print dialog
+                console.log('[DEBUG] printAllImages: About to call trackPrint with settings:', settings);
+                await this.trackPrint({
+                    paperSize: settings.paperSize,
+                    orientation: settings.orientation,
+                    colorMode: settings.colorMode,
+                    quality: settings.quality,
+                    layoutType: `${viewportCount}`,
+                    totalPages: totalPages,
+                    pagesPerCopy: totalPages,
+                    includePatientInfo: settings.includePatientInfo,
+                    includeAnnotations: settings.includeAnnotations,
+                    includeMeasurements: settings.includeMeasurements
+                });
+                console.log('[DEBUG] printAllImages: trackPrint completed');
+
                 setTimeout(() => {
                     printWindow.print();
+                    // Update status to completed after a delay
+                    setTimeout(() => {
+                        this.updatePrintStatus('completed');
+                    }, 2000);
                 }, 500);
             }
 
@@ -1795,13 +1850,48 @@ window.DICOM_VIEWER.PrintManager = class {
     <div class="print-toolbar no-print">
         <h4>📄 Print Preview - All Images on ${totalPages} Pages (${viewportCount}-viewport layout)</h4>
         <div>
-            <button class="btn-print" onclick="window.print()">🖨️ Print All Pages</button>
+            <button class="btn-print" onclick="trackAndPrint()">🖨️ Print All Pages</button>
             <button class="btn-close" onclick="window.close()">✕ Close</button>
         </div>
     </div>
     <div class="page-nav no-print">
         ${pageScreenshots.map((_, i) => `<div class="page-nav-item" title="Page ${i + 1}" onclick="document.querySelector('[data-page=\\'${i + 1}\\']').scrollIntoView({behavior:'smooth'})">${i + 1}</div>`).join('')}
     </div>
+    <script>
+        // Track print through parent window before printing
+        async function trackAndPrint() {
+            console.log('[DEBUG Preview] trackAndPrint called');
+            try {
+                // Try to track via parent window's PrintManager INSTANCE (not the class)
+                if (window.opener && window.opener.DICOM_VIEWER && window.opener.DICOM_VIEWER.MANAGERS && window.opener.DICOM_VIEWER.MANAGERS.printManager) {
+                    const printManager = window.opener.DICOM_VIEWER.MANAGERS.printManager;
+                    console.log('[DEBUG Preview] Found parent PrintManager instance, calling trackPrint...');
+                    await printManager.trackPrint({
+                        paperSize: '${settings.paperSize}',
+                        orientation: '${settings.orientation}',
+                        colorMode: '${settings.colorMode || 'grayscale'}',
+                        quality: '${settings.quality || 'high'}',
+                        layoutType: '${viewportCount}',
+                        totalPages: ${totalPages},
+                        pagesPerCopy: ${totalPages},
+                        includePatientInfo: ${settings.includePatientInfo ? 1 : 0},
+                        includeAnnotations: ${settings.includeAnnotations ? 1 : 0},
+                        includeMeasurements: ${settings.includeMeasurements ? 1 : 0}
+                    });
+                    console.log('[DEBUG Preview] Print tracked successfully from preview window');
+                } else {
+                    console.warn('[DEBUG Preview] Parent PrintManager instance not available. Checking what exists...');
+                    console.log('[DEBUG Preview] window.opener:', window.opener);
+                    console.log('[DEBUG Preview] window.opener.DICOM_VIEWER:', window.opener?.DICOM_VIEWER);
+                    console.log('[DEBUG Preview] window.opener.DICOM_VIEWER.MANAGERS:', window.opener?.DICOM_VIEWER?.MANAGERS);
+                }
+            } catch (error) {
+                console.error('[DEBUG Preview] Failed to track print:', error);
+            }
+            // Print regardless of tracking success
+            window.print();
+        }
+    </script>
     ` : ''}
 
     ${pagesHTML}
