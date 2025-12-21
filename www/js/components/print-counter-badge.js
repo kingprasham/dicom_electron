@@ -392,7 +392,7 @@ window.DICOM_VIEWER.PrintCounterBadge = class {
             setTimeout(() => badge?.classList.remove('updating'), 500);
         }
 
-        // Update dropdown details - simplified to show Images and Reports
+        // Update dropdown details - show Images, Reports, and PCPNDT
         if (detailsEl) {
             detailsEl.innerHTML = `
                 <div class="stat-row">
@@ -402,6 +402,10 @@ window.DICOM_VIEWER.PrintCounterBadge = class {
                 <div class="stat-row">
                     <span class="label"><i class="bi bi-file-text me-2"></i>Reports</span>
                     <span class="value success">${counts.reports || 0}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label"><i class="bi bi-file-medical me-2"></i>PCPNDT</span>
+                    <span class="value warning">${counts.pcpndt || 0}</span>
                 </div>
                 <div class="stat-row">
                     <span class="label"><i class="bi bi-files me-2"></i>Total Pages</span>

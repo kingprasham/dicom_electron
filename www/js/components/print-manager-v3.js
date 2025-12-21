@@ -1621,6 +1621,8 @@ window.DICOM_VIEWER.PrintManager = class {
                     // Update status to completed after a delay
                     setTimeout(() => {
                         this.updatePrintStatus('completed');
+                        // After image print, prompt for PCPNDT Form F
+                        this.showPcpndtPrompt();
                     }, 2000);
                 }, 500);
             }
@@ -1891,6 +1893,21 @@ window.DICOM_VIEWER.PrintManager = class {
             }
             // Print regardless of tracking success
             window.print();
+            
+            // After print, trigger PCPNDT prompt in parent window
+            setTimeout(() => {
+                try {
+                    console.log('[DEBUG Preview] Triggering PCPNDT prompt in parent window...');
+                    if (window.opener && window.opener.DICOM_VIEWER && window.opener.DICOM_VIEWER.MANAGERS && window.opener.DICOM_VIEWER.MANAGERS.printManager) {
+                        window.opener.DICOM_VIEWER.MANAGERS.printManager.showPcpndtPrompt();
+                        console.log('[DEBUG Preview] PCPNDT prompt triggered');
+                    } else {
+                        console.warn('[DEBUG Preview] Cannot trigger PCPNDT prompt - parent PrintManager not available');
+                    }
+                } catch (e) {
+                    console.error('[DEBUG Preview] Error triggering PCPNDT prompt:', e);
+                }
+            }, 1000);
         }
     </script>
     ` : ''}
@@ -2801,6 +2818,69 @@ window.DICOM_VIEWER.PrintManager = class {
     }
 
     /**
+     * Show PCPNDT Form F prompt after image print
+     * Asks user if they want to print the compliance form
+     */
+    showPcpndtPrompt() {
+        // Create prompt modal HTML
+        const modalHTML = `
+            <div id="pcpndtPromptModal" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" 
+                 style="background: rgba(0,0,0,0.8); z-index: 99999;">
+                <div class="card text-white" style="background: #1a1f3a; border: 2px solid #0d6efd; border-radius: 15px; max-width: 400px;">
+                    <div class="card-body text-center p-4">
+                        <div class="mb-3">
+                            <i class="bi bi-file-medical-fill text-success" style="font-size: 3rem;"></i>
+                        </div>
+                        <h5 class="mb-3">PCPNDT Form F</h5>
+                        <p class="text-muted mb-4">Do you want to print PCPNDT Form F (Pre-Conception and Pre-Natal Diagnostic Techniques compliance form)?</p>
+                        <div class="d-flex gap-2 justify-content-center">
+                            <button id="pcpndtYesBtn" class="btn btn-success px-4">
+                                <i class="bi bi-check-lg me-1"></i> Yes, Print
+                            </button>
+                            <button id="pcpndtNoBtn" class="btn btn-secondary px-4">
+                                <i class="bi bi-x-lg me-1"></i> No, Skip
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove any existing modal
+        document.getElementById('pcpndtPromptModal')?.remove();
+
+        // Add to body
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        const modal = document.getElementById('pcpndtPromptModal');
+
+        // Handle Yes button
+        document.getElementById('pcpndtYesBtn')?.addEventListener('click', async () => {
+            modal.remove();
+            // Print PCPNDT form directly (no preview)
+            try {
+                await this.printPcpndtFormF(false);
+                this.showToast('PCPNDT Form F printed successfully', 'success');
+            } catch (error) {
+                console.error('PCPNDT print error:', error);
+                this.showToast('Failed to print PCPNDT form', 'error');
+            }
+        });
+
+        // Handle No button
+        document.getElementById('pcpndtNoBtn')?.addEventListener('click', () => {
+            modal.remove();
+        });
+
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+
+    /**
      * Print PCPNDT Form F
      * Generates a compliance print form based on PCPNDT Act requirements
      */
@@ -2855,6 +2935,22 @@ window.DICOM_VIEWER.PrintManager = class {
             this.updateLoadingProgress('Complete!', 100);
 
             if (!previewOnly) {
+                // Track PCPNDT print before triggering print dialog
+                console.log('[DEBUG PCPNDT] Tracking PCPNDT print...');
+                await this.trackPrint({
+                    printType: 'pcpndt',
+                    paperSize: pcpndtSettings.paperSize,
+                    orientation: 'portrait',
+                    colorMode: pcpndtSettings.colorMode,
+                    quality: 'high',
+                    layoutType: 'pcpndt',
+                    totalPages: 1,
+                    includePatientInfo: true,
+                    includeAnnotations: false,
+                    includeMeasurements: false
+                });
+                console.log('[DEBUG PCPNDT] PCPNDT print tracked!');
+
                 setTimeout(() => {
                     printWindow.print();
                 }, 500);

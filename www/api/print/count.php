@@ -55,7 +55,7 @@ try {
         default => "DATE(queued_at) = CURDATE()"
     };
 
-    // Build the main query - only count completed prints for images vs reports
+    // Build the main query - only count completed prints for images vs reports vs pcpndt
     $sql = "
         SELECT
             COUNT(*) as total_prints,
@@ -64,6 +64,7 @@ try {
             SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_prints,
             SUM(CASE WHEN status = 'completed' AND (print_type = 'image' OR print_type IS NULL) THEN 1 ELSE 0 END) as image_prints,
             SUM(CASE WHEN status = 'completed' AND print_type = 'report' THEN 1 ELSE 0 END) as report_prints,
+            SUM(CASE WHEN status = 'completed' AND print_type = 'pcpndt' THEN 1 ELSE 0 END) as pcpndt_prints,
             SUM(total_pages) as total_pages,
             SUM(COALESCE(total_cost, 0)) as total_cost,
             MAX(queued_at) as last_print_time,
@@ -177,6 +178,7 @@ try {
             'failed' => (int)($stats['failed_prints'] ?? 0),
             'images' => (int)($stats['image_prints'] ?? 0),
             'reports' => (int)($stats['report_prints'] ?? 0),
+            'pcpndt' => (int)($stats['pcpndt_prints'] ?? 0),
             'pages' => (int)($stats['total_pages'] ?? 0),
             'cost' => (float)($stats['total_cost'] ?? 0)
         ],
