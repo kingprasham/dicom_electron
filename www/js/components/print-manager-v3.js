@@ -1493,6 +1493,46 @@ window.DICOM_VIEWER.PrintManager = class {
                 // Wait for all images to render
                 await new Promise(resolve => setTimeout(resolve, 100));
 
+                // BEFORE capture: Inject CSS with !important to override all viewport borders
+                const printBorderSettings = this.printSettings || {};
+                const borderCSS = printBorderSettings.borderEnabled
+                    ? (printBorderSettings.borderWidth || 2) + 'px ' + (printBorderSettings.borderStyle || 'solid') + ' ' + (printBorderSettings.borderColor || '#ff0000')
+                    : 'none';
+
+                const printStyleEl = document.createElement('style');
+                printStyleEl.id = 'print-capture-override';
+                printStyleEl.textContent = `
+                    .viewport, .viewport.active, .viewport.selected, 
+                    .viewport.annotation-mode, .viewport.main-tool-mode,
+                    .viewport:first-child, .viewport:hover, .viewport:focus {
+                        border: ${borderCSS} !important;
+                        outline: none !important;
+                        box-shadow: none !important;
+                    }
+                    .viewport::before, .viewport::after,
+                    .viewport.active::before, .viewport.active::after,
+                    .viewport.selected::before, .viewport.selected::after {
+                        display: none !important;
+                        content: none !important;
+                    }
+                `;
+                document.head.appendChild(printStyleEl);
+
+                // Hide yellow/active borders on ORIGINAL viewports
+                const originalBorders = [];
+                const originalClasses = [];
+                viewports.forEach(vp => {
+                    originalBorders.push(vp.style.border);
+                    originalClasses.push({
+                        active: vp.classList.contains('active'),
+                        selected: vp.classList.contains('selected'),
+                        annotationMode: vp.classList.contains('annotation-mode'),
+                        mainToolMode: vp.classList.contains('main-tool-mode')
+                    });
+                    // Remove classes that create borders
+                    vp.classList.remove('active', 'selected', 'annotation-mode', 'main-tool-mode');
+                });
+
                 // Capture the viewport container using html2canvas
                 try {
                     const canvas = await html2canvas(viewportContainer, {
@@ -1541,10 +1581,24 @@ window.DICOM_VIEWER.PrintManager = class {
                             clonedViewports.forEach(vp => {
                                 vp.classList.remove('active');
                                 vp.classList.remove('selected');
+                                vp.classList.remove('annotation-mode');
+                                vp.classList.remove('main-tool-mode');
                                 vp.style.outline = 'none';
                                 vp.style.boxShadow = 'none';
+                                // Remove any yellow/selection borders completely
                                 vp.style.border = 'none';
+
+                                // Apply user's print border settings if enabled
+                                const settings = window.DICOM_VIEWER?.MANAGERS?.printManager?.printSettings || {};
+                                if (settings.borderEnabled) {
+                                    vp.style.border = (settings.borderWidth || 2) + 'px ' + (settings.borderStyle || 'solid') + ' ' + (settings.borderColor || '#ff0000');
+                                }
                             });
+
+                            // Inject CSS to hide any viewport styling that might create borders
+                            const styleEl = clonedDoc.createElement('style');
+                            styleEl.textContent = '.viewport, .viewport.active, .viewport.selected, .viewport.annotation-mode, .viewport.main-tool-mode { outline: none !important; box-shadow: none !important; } .viewport::after, .viewport::before, .viewport.active::after, .viewport.selected::after { display: none !important; content: none !important; }';
+                            clonedDoc.head.appendChild(styleEl);
                             // Remove viewport name pseudo-element labels
                             clonedViewports.forEach(vp => vp.removeAttribute('data-viewport-name'));
                             // Hide image number overlays
@@ -1560,13 +1614,28 @@ window.DICOM_VIEWER.PrintManager = class {
                         imageCount: viewportCount
                     });
                 } catch (err) {
-                    console.error(`Error capturing page ${page + 1}:`, err);
+                    console.error(`Error capturing page ${page + 1}: `, err);
                     pageScreenshots.push({
                         dataUrl: null,
                         pageNum: page + 1,
                         error: true
                     });
                 }
+
+                // AFTER capture: Restore original borders and classes on viewports
+                viewports.forEach((vp, idx) => {
+                    vp.style.border = originalBorders[idx] || '';
+                    vp.style.outline = '';
+                    vp.style.boxShadow = '';
+                    if (originalClasses[idx]?.active) vp.classList.add('active');
+                    if (originalClasses[idx]?.selected) vp.classList.add('selected');
+                    if (originalClasses[idx]?.annotationMode) vp.classList.add('annotation-mode');
+                    if (originalClasses[idx]?.mainToolMode) vp.classList.add('main-tool-mode');
+                });
+
+                // Remove the injected CSS override
+                const printOverrideEl = document.getElementById('print-capture-override');
+                if (printOverrideEl) printOverrideEl.remove();
             }
 
             // Restore original images in viewports
@@ -1607,7 +1676,7 @@ window.DICOM_VIEWER.PrintManager = class {
                     orientation: settings.orientation,
                     colorMode: settings.colorMode,
                     quality: settings.quality,
-                    layoutType: `${viewportCount}`,
+                    layoutType: `${viewportCount} `,
                     totalPages: totalPages,
                     pagesPerCopy: totalPages,
                     includePatientInfo: settings.includePatientInfo,
@@ -1647,7 +1716,7 @@ window.DICOM_VIEWER.PrintManager = class {
         const pagesHTML = pageScreenshots.map((page, idx) => {
             if (page.error || !page.dataUrl) {
                 return `
-                    <div class="print-page" data-page="${page.pageNum}">
+                                        < div class="print-page" data - page="${page.pageNum}" >
                         <div class="page-header">
                             <div class="header-content">
                                 <div class="hospital-info">
@@ -1669,12 +1738,12 @@ window.DICOM_VIEWER.PrintManager = class {
                             <div>Page ${page.pageNum} of ${totalPages}</div>
                             <div>Printed: ${new Date().toLocaleString()}</div>
                         </div>
-                    </div>
-                `;
+                    </div >
+                        `;
             }
 
             return `
-                <div class="print-page" data-page="${page.pageNum}">
+                        < div class="print-page" data - page="${page.pageNum}" >
                     <div class="page-header">
                         <div class="header-content">
                             <div class="hospital-info">
@@ -1694,162 +1763,161 @@ window.DICOM_VIEWER.PrintManager = class {
                         <div>Printed: ${new Date().toLocaleString()}</div>
                     </div>
                 </div>
-            `;
+                    `;
         }).join('');
 
         return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>DICOM Print - All Images - ${patientInfo.name}</title>
-    <style>
-        @page {
-            size: ${settings.paperSize} ${settings.orientation};
-            margin: ${margin}mm;
+                        < !DOCTYPE html >
+                            <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                        <title>DICOM Print - All Images - ${patientInfo.name}</title>
+                                        <style>
+                                            @page {
+                                                size: ${settings.paperSize} ${settings.orientation};
+                                            margin: ${margin}mm;
         }
 
-        @media print {
-            body { margin: 0; padding: 0; }
-            .no-print { display: none !important; }
-            .print-page { page-break-after: always; margin-bottom: 0 !important; box-shadow: none !important; }
-            .print-page:last-child { page-break-after: avoid; }
-            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                                            @media print {
+                                                body {margin: 0; padding: 0; }
+                                            .no-print {display: none !important; }
+                                            .print-page {page -break-after: always; margin-bottom: 0 !important; box-shadow: none !important; }
+                                            .print-page:last-child {page -break-after: avoid; }
+                                            * {-webkit - print - color - adjust: exact !important; print-color-adjust: exact !important; }
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            * {margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: ${previewOnly ? '#2d2d2d' : '#fff'};
-            color: ${previewOnly ? '#fff' : '#000'};
+                                            body {
+                                                font - family: 'Segoe UI', Arial, sans-serif;
+                                            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+                                            color: ${previewOnly ? '#fff' : '#000'};
         }
 
-        .print-toolbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 1000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                                            .print-toolbar {
+                                                position: fixed;
+                                            top: 0;
+                                            left: 0;
+                                            right: 0;
+                                            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                                            padding: 15px 30px;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: space-between;
+                                            z-index: 1000;
+                                            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
         }
 
-        .print-toolbar h4 { color: #fff; margin: 0; font-size: 16px; }
-        
-        .btn-print {
-            background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
-            color: white;
-            border: none;
-            padding: 10px 25px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            margin-right: 10px;
+                                            .print-toolbar h4 {color: #fff; margin: 0; font-size: 16px; }
+
+                                            .btn-print {
+                                                background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
+                                            color: white;
+                                            border: none;
+                                            padding: 10px 25px;
+                                            border-radius: 6px;
+                                            cursor: pointer;
+                                            font-weight: 600;
+                                            margin-right: 10px;
         }
 
-        .btn-close {
-            background: #6c757d;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            cursor: pointer;
+                                            .btn-close {
+                                                background: #6c757d;
+                                            color: white;
+                                            border: none;
+                                            padding: 10px 20px;
+                                            border-radius: 6px;
+                                            cursor: pointer;
         }
 
-        .print-page {
-            width: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '297mm' : '210mm') : (settings.orientation === 'landscape' ? '279mm' : '216mm')};
-            min-height: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '210mm' : '297mm') : (settings.orientation === 'landscape' ? '216mm' : '279mm')};
-            padding: 10mm;
-            margin: ${previewOnly ? '60px auto 20px' : '0 auto'};
-            background: #fff;
-            color: #000;
-            box-shadow: ${previewOnly ? '0 4px 20px rgba(0,0,0,0.4)' : 'none'};
+                                            .print-page {
+                                                width: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '297mm' : '210mm') : (settings.orientation === 'landscape' ? '279mm' : '216mm')};
+                                            min-height: ${settings.paperSize === 'A4' ? (settings.orientation === 'landscape' ? '210mm' : '297mm') : (settings.orientation === 'landscape' ? '216mm' : '279mm')};
+                                            padding: 10mm;
+                                            margin: ${previewOnly ? '60px auto 20px' : '0 auto'};
+                                            background: #fff;
+                                            color: #000;
+                                            box-shadow: ${previewOnly ? '0 4px 20px rgba(0,0,0,0.4)' : 'none'};
         }
 
-        .page-header {
-            border-bottom: 2px solid #0d6efd;
-            padding-bottom: 8px;
-            margin-bottom: 10px;
+                                            .page-header {
+                                                border - bottom: 2px solid #0d6efd;
+                                            padding-bottom: 8px;
+                                            margin-bottom: 10px;
         }
 
-        .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
+                                            .header-content {
+                                                display: flex;
+                                            justify-content: space-between;
+                                            align-items: flex-start;
         }
 
-        .hospital-info h2 { color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
-        .hospital-info p { font-size: 11px; color: #666; }
-        .patient-info { text-align: right; font-size: 11px; }
-        .patient-info strong { font-size: 13px; color: #333; }
+                                            .hospital-info h2 {color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
+                                            .hospital-info p {font - size: 11px; color: #666; }
+                                            .patient-info {text - align: right; font-size: 11px; }
+                                            .patient-info strong {font - size: 13px; color: #333; }
 
-        .page-image {
-            width: 100%;
-            height: auto;
-            max-height: ${settings.orientation === 'landscape' ? '150mm' : '220mm'};
-            object-fit: contain;
-            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
-            border-radius: 4px;
+                                            .page-image {
+                                                width: 100%;
+                                            height: auto;
+                                            max-height: ${settings.orientation === 'landscape' ? '150mm' : '220mm'};
+                                            object-fit: contain;
+                                            border: none;
         }
 
-        .error-page {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 150mm;
-            color: #dc3545;
-            font-size: 18px;
+                                            .error-page {
+                                                display: flex;
+                                            flex-direction: column;
+                                            align-items: center;
+                                            justify-content: center;
+                                            height: 150mm;
+                                            color: #dc3545;
+                                            font-size: 18px;
         }
 
-        .error-page i { font-size: 48px; margin-bottom: 15px; }
+                                            .error-page i {font - size: 48px; margin-bottom: 15px; }
 
-        .page-footer {
-            border-top: 1px solid #ddd;
-            padding-top: 8px;
-            margin-top: 10px;
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: #666;
+                                            .page-footer {
+                                                border - top: 1px solid #ddd;
+                                            padding-top: 8px;
+                                            margin-top: 10px;
+                                            display: flex;
+                                            justify-content: space-between;
+                                            font-size: 10px;
+                                            color: #666;
         }
 
-        .page-nav {
-            position: fixed;
-            right: 20px;
-            top: 50%;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            z-index: 1001;
+                                            .page-nav {
+                                                position: fixed;
+                                            right: 20px;
+                                            top: 50%;
+                                            transform: translateY(-50%);
+                                            display: flex;
+                                            flex-direction: column;
+                                            gap: 5px;
+                                            z-index: 1001;
         }
 
-        .page-nav-item {
-            width: 30px;
-            height: 30px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+                                            .page-nav-item {
+                                                width: 30px;
+                                            height: 30px;
+                                            background: rgba(255, 255, 255, 0.1);
+                                            border: 1px solid rgba(255, 255, 255, 0.2);
+                                            border-radius: 50%;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
+                                            color: #fff;
+                                            font-size: 12px;
+                                            cursor: pointer;
+                                            transition: all 0.2s ease;
         }
 
-        .page-nav-item:hover { background: rgba(13, 110, 253, 0.5); border-color: #0d6efd; }
-    </style>
-</head>
-<body>
-    ${previewOnly ? `
+                                            .page-nav-item:hover {background: rgba(13, 110, 253, 0.5); border-color: #0d6efd; }
+                                        </style>
+                                </head>
+                                <body>
+                                    ${previewOnly ? `
     <div class="print-toolbar no-print">
         <h4>📄 Print Preview - All Images on ${totalPages} Pages (${viewportCount}-viewport layout)</h4>
         <div>
@@ -1912,9 +1980,9 @@ window.DICOM_VIEWER.PrintManager = class {
     </script>
     ` : ''}
 
-    ${pagesHTML}
-</body>
-</html>`;
+                                    ${pagesHTML}
+                                </body>
+                            </html>`;
     }
 
     /**
@@ -1938,14 +2006,14 @@ window.DICOM_VIEWER.PrintManager = class {
         const pagesHTML = pages.map((pageImages, pageIndex) => {
             const cellsHTML = pageImages.map(img => {
                 if (img.error || !img.dataUrl) {
-                    return `<div class="viewport-cell error"><span>Image ${img.index}<br>Failed to load</span></div>`;
+                    return `< div class="viewport-cell error" > <span>Image ${img.index}<br>Failed to load</span></div > `;
                 }
                 return `
-                    <div class="viewport-cell">
-                        <img src="${img.dataUrl}" alt="Image ${img.index}">
-                        <div class="image-number">${img.index}</div>
-                    </div>
-                `;
+                        < div class="viewport-cell" >
+                            <img src="${img.dataUrl}" alt="Image ${img.index}">
+                                <div class="image-number">${img.index}</div>
+                            </div>
+                    `;
             }).join('');
 
             // Add empty cells to fill the grid
@@ -1954,7 +2022,7 @@ window.DICOM_VIEWER.PrintManager = class {
                 Array(emptyCells).fill('<div class="viewport-cell empty"></div>').join('') : '';
 
             return `
-                <div class="print-page" data-page="${pageIndex + 1}">
+                        < div class="print-page" data - page="${pageIndex + 1}" >
                     <div class="page-header">
                         <div class="header-content">
                             <div class="hospital-info">
@@ -1978,187 +2046,187 @@ window.DICOM_VIEWER.PrintManager = class {
                         <div>Page ${pageIndex + 1} of ${totalPages}</div>
                         <div>Printed: ${new Date().toLocaleString()}</div>
                     </div>
-                </div>
-            `;
+                </div >
+                        `;
         }).join('');
 
         return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>DICOM Print - All Images - ${patientInfo.name}</title>
-    <style>
-        @page {
-            size: ${settings.paperSize} ${settings.orientation};
-            margin: ${margin}mm;
+                        < !DOCTYPE html >
+                            <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                        <title>DICOM Print - All Images - ${patientInfo.name}</title>
+                                        <style>
+                                            @page {
+                                                size: ${settings.paperSize} ${settings.orientation};
+                                            margin: ${margin}mm;
         }
 
-        @media print {
-            body { margin: 0; padding: 0; }
-            .no-print { display: none !important; }
-            .print-page { page-break-after: always; margin-bottom: 0 !important; box-shadow: none !important; }
-            .print-page:last-child { page-break-after: avoid; }
-            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                                            @media print {
+                                                body {margin: 0; padding: 0; }
+                                            .no-print {display: none !important; }
+                                            .print-page {page -break-after: always; margin-bottom: 0 !important; box-shadow: none !important; }
+                                            .print-page:last-child {page -break-after: avoid; }
+                                            * {-webkit - print - color - adjust: exact !important; print-color-adjust: exact !important; }
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            * {margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: ${previewOnly ? '#2d2d2d' : '#fff'};
-            color: ${previewOnly ? '#fff' : '#000'};
+                                            body {
+                                                font - family: 'Segoe UI', Arial, sans-serif;
+                                            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+                                            color: ${previewOnly ? '#fff' : '#000'};
         }
 
-        .print-toolbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 1000;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                                            .print-toolbar {
+                                                position: fixed;
+                                            top: 0;
+                                            left: 0;
+                                            right: 0;
+                                            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                                            padding: 15px 30px;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: space-between;
+                                            z-index: 1000;
+                                            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
 
-        .print-toolbar h4 { color: #fff; font-weight: 600; margin: 0; }
+                                            .print-toolbar h4 {color: #fff; font-weight: 600; margin: 0; }
 
-        .print-toolbar button {
-            padding: 12px 28px;
-            font-size: 15px;
-            font-weight: 600;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
+                                            .print-toolbar button {
+                                                padding: 12px 28px;
+                                            font-size: 15px;
+                                            font-weight: 600;
+                                            border: none;
+                                            border-radius: 8px;
+                                            cursor: pointer;
+                                            transition: all 0.3s ease;
         }
 
-        .btn-print {
-            background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
-            color: #fff;
-            margin-right: 10px;
+                                            .btn-print {
+                                                background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+                                            color: #fff;
+                                            margin-right: 10px;
         }
 
-        .btn-print:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(13, 110, 253, 0.4); }
-        .btn-close { background: #6c757d; color: #fff; }
+                                            .btn-print:hover {transform: translateY(-2px); box-shadow: 0 6px 20px rgba(13, 110, 253, 0.4); }
+                                            .btn-close {background: #6c757d; color: #fff; }
 
-        .print-content {
-            padding: ${previewOnly ? '80px 20px 20px' : '0'};
-            max-height: ${previewOnly ? 'calc(100vh - 80px)' : 'none'};
-            overflow-y: ${previewOnly ? 'auto' : 'visible'};
+                                            .print-content {
+                                                padding: ${previewOnly ? '80px 20px 20px' : '0'};
+                                            max-height: ${previewOnly ? 'calc(100vh - 80px)' : 'none'};
+                                            overflow-y: ${previewOnly ? 'auto' : 'visible'};
         }
 
-        .print-page {
-            background: #fff;
-            color: #000;
-            max-width: ${settings.orientation === 'landscape' ? '297mm' : '210mm'};
-            min-height: ${settings.orientation === 'landscape' ? '200mm' : '280mm'};
-            margin: ${previewOnly ? '0 auto 30px' : '0'};
-            padding: 15px;
-            box-shadow: ${previewOnly ? '0 4px 30px rgba(0, 0, 0, 0.5)' : 'none'};
-            border-radius: ${previewOnly ? '8px' : '0'};
+                                            .print-page {
+                                                background: #fff;
+                                            color: #000;
+                                            max-width: ${settings.orientation === 'landscape' ? '297mm' : '210mm'};
+                                            min-height: ${settings.orientation === 'landscape' ? '200mm' : '280mm'};
+                                            margin: ${previewOnly ? '0 auto 30px' : '0'};
+                                            padding: 15px;
+                                            box-shadow: ${previewOnly ? '0 4px 30px rgba(0, 0, 0, 0.5)' : 'none'};
+                                            border-radius: ${previewOnly ? '8px' : '0'};
         }
 
-        .page-header {
-            border-bottom: 3px solid #0d6efd;
-            padding-bottom: 10px;
-            margin-bottom: 10px;
+                                            .page-header {
+                                                border - bottom: 3px solid #0d6efd;
+                                            padding-bottom: 10px;
+                                            margin-bottom: 10px;
         }
 
-        .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
+                                            .header-content {
+                                                display: flex;
+                                            justify-content: space-between;
+                                            align-items: flex-start;
         }
 
-        .hospital-info h2 { color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
-        .hospital-info p { font-size: 11px; color: #666; }
-        .patient-info { text-align: right; font-size: 11px; }
-        .patient-info strong { font-size: 13px; color: #333; }
+                                            .hospital-info h2 {color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
+                                            .hospital-info p {font - size: 11px; color: #666; }
+                                            .patient-info {text - align: right; font-size: 11px; }
+                                            .patient-info strong {font - size: 13px; color: #333; }
 
-        .viewport-grid {
-            display: grid;
-            gap: ${settings.borderEnabled ? `${settings.borderWidth || 2}px` : '0'};
-            height: ${settings.orientation === 'landscape' ? '155mm' : '230mm'};
-            background: ${settings.borderEnabled ? (settings.borderColor || '#000000') : 'transparent'};
+                                            .viewport-grid {
+                                                display: grid;
+                                            gap: 2px;
+                                            height: ${settings.orientation === 'landscape' ? '155mm' : '230mm'};
+                                            background: transparent;
         }
 
-        .viewport-cell {
-            position: relative;
-            background: #000;
-            border: none;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+                                            .viewport-cell {
+                                                position: relative;
+                                            background: #000;
+                                            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
+                                            overflow: hidden;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
         }
 
-        .viewport-cell img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
+                                            .viewport-cell img {
+                                                max - width: 100%;
+                                            max-height: 100%;
+                                            object-fit: contain;
         }
 
-        .viewport-cell.empty { background: #1a1a1a; }
-        .viewport-cell.error { background: #2d1d1d; color: #ff6b6b; font-size: 11px; }
+                                            .viewport-cell.empty {background: #1a1a1a; }
+                                            .viewport-cell.error {background: #2d1d1d; color: #ff6b6b; font-size: 11px; }
 
-        .image-number {
-            position: absolute;
-            bottom: 4px;
-            right: 4px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #00ff00;
-            font-size: 10px;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: 'Consolas', monospace;
+                                            .image-number {
+                                                position: absolute;
+                                            bottom: 4px;
+                                            right: 4px;
+                                            background: rgba(0, 0, 0, 0.7);
+                                            color: #00ff00;
+                                            font-size: 10px;
+                                            padding: 2px 6px;
+                                            border-radius: 3px;
+                                            font-family: 'Consolas', monospace;
         }
 
-        .page-footer {
-            border-top: 1px solid #ddd;
-            padding-top: 8px;
-            margin-top: 10px;
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: #666;
+                                            .page-footer {
+                                                border - top: 1px solid #ddd;
+                                            padding-top: 8px;
+                                            margin-top: 10px;
+                                            display: flex;
+                                            justify-content: space-between;
+                                            font-size: 10px;
+                                            color: #666;
         }
 
-        /* Page navigation for preview */
-        .page-nav {
-            position: fixed;
-            right: 20px;
-            top: 50%;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            z-index: 1001;
+                                            /* Page navigation for preview */
+                                            .page-nav {
+                                                position: fixed;
+                                            right: 20px;
+                                            top: 50%;
+                                            transform: translateY(-50%);
+                                            display: flex;
+                                            flex-direction: column;
+                                            gap: 5px;
+                                            z-index: 1001;
         }
 
-        .page-nav-item {
-            width: 30px;
-            height: 30px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+                                            .page-nav-item {
+                                                width: 30px;
+                                            height: 30px;
+                                            background: rgba(255, 255, 255, 0.1);
+                                            border: 1px solid rgba(255, 255, 255, 0.2);
+                                            border-radius: 50%;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
+                                            color: #fff;
+                                            font-size: 12px;
+                                            cursor: pointer;
+                                            transition: all 0.2s ease;
         }
 
-        .page-nav-item:hover { background: rgba(13, 110, 253, 0.5); border-color: #0d6efd; }
-    </style>
-</head>
-<body>
-    ${previewOnly ? `
+                                            .page-nav-item:hover {background: rgba(13, 110, 253, 0.5); border-color: #0d6efd; }
+                                        </style>
+                                </head>
+                                <body>
+                                    ${previewOnly ? `
     <div class="print-toolbar no-print">
         <h4>📄 Print Preview - ${capturedImages.length} Images on ${totalPages} Pages (${layout} Grid)</h4>
         <div>
@@ -2171,12 +2239,12 @@ window.DICOM_VIEWER.PrintManager = class {
     </div>
     ` : ''}
 
-    <div class="print-content">
-        ${pagesHTML}
-    </div>
-</body>
-</html>
-        `;
+                                    <div class="print-content">
+                                        ${pagesHTML}
+                                    </div>
+                                </body>
+                            </html>
+                    `;
     }
     generateViewportPrintHTML(viewportState, patientInfo, previewOnly) {
         const settings = this.getEffectivePrintSettings();
@@ -2186,180 +2254,180 @@ window.DICOM_VIEWER.PrintManager = class {
         const margin = marginValues[settings.margins] || 10;
 
         return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>DICOM Print - ${patientInfo.name} - ${new Date().toLocaleDateString()}</title>
-    <style>
-        @page {
-            size: ${settings.paperSize} ${settings.orientation};
-            margin: ${margin}mm;
+                        < !DOCTYPE html >
+                            <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                        <title>DICOM Print - ${patientInfo.name} - ${new Date().toLocaleDateString()}</title>
+                                        <style>
+                                            @page {
+                                                size: ${settings.paperSize} ${settings.orientation};
+                                            margin: ${margin}mm;
         }
 
-        @media print {
-            body { margin: 0; padding: 0; }
-            .no-print { display: none !important; }
-            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                                            @media print {
+                                                body {margin: 0; padding: 0; }
+                                            .no-print {display: none !important; }
+                                            * {-webkit - print - color - adjust: exact !important; print-color-adjust: exact !important; }
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            * {margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: ${previewOnly ? '#2d2d2d' : '#fff'};
-            color: ${previewOnly ? '#fff' : '#000'};
+                                            body {
+                                                font - family: 'Segoe UI', Arial, sans-serif;
+                                            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+                                            color: ${previewOnly ? '#fff' : '#000'};
         }
 
-        .print-toolbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 1000;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                                            .print-toolbar {
+                                                position: fixed;
+                                            top: 0;
+                                            left: 0;
+                                            right: 0;
+                                            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                                            padding: 15px 30px;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: space-between;
+                                            z-index: 1000;
+                                            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
 
-        .print-toolbar h4 {
-            color: #fff;
-            font-weight: 600;
-            margin: 0;
+                                            .print-toolbar h4 {
+                                                color: #fff;
+                                            font-weight: 600;
+                                            margin: 0;
         }
 
-        .print-toolbar button {
-            padding: 12px 28px;
-            font-size: 15px;
-            font-weight: 600;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
+                                            .print-toolbar button {
+                                                padding: 12px 28px;
+                                            font-size: 15px;
+                                            font-weight: 600;
+                                            border: none;
+                                            border-radius: 8px;
+                                            cursor: pointer;
+                                            transition: all 0.3s ease;
         }
 
-        .btn-print {
-            background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
-            color: #fff;
-            margin-right: 10px;
+                                            .btn-print {
+                                                background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+                                            color: #fff;
+                                            margin-right: 10px;
         }
 
-        .btn-print:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(13, 110, 253, 0.4);
+                                            .btn-print:hover {
+                                                transform: translateY(-2px);
+                                            box-shadow: 0 6px 20px rgba(13, 110, 253, 0.4);
         }
 
-        .btn-close {
-            background: #6c757d;
-            color: #fff;
+                                            .btn-close {
+                                                background: #6c757d;
+                                            color: #fff;
         }
 
-        .print-content {
-            padding-top: ${previewOnly ? '80px' : '0'};
-            padding: ${previewOnly ? '80px 20px 20px' : '0'};
+                                            .print-content {
+                                                padding - top: ${previewOnly ? '80px' : '0'};
+                                            padding: ${previewOnly ? '80px 20px 20px' : '0'};
         }
 
-        .print-page {
-            background: #fff;
-            color: #000;
-            max-width: ${settings.orientation === 'landscape' ? '297mm' : '210mm'};
-            min-height: ${settings.orientation === 'landscape' ? '210mm' : '297mm'};
-            margin: ${previewOnly ? '0 auto 20px' : '0'};
-            padding: 20px;
-            box-shadow: ${previewOnly ? '0 4px 20px rgba(0, 0, 0, 0.3)' : 'none'};
+                                            .print-page {
+                                                background: #fff;
+                                            color: #000;
+                                            max-width: ${settings.orientation === 'landscape' ? '297mm' : '210mm'};
+                                            min-height: ${settings.orientation === 'landscape' ? '210mm' : '297mm'};
+                                            margin: ${previewOnly ? '0 auto 20px' : '0'};
+                                            padding: 20px;
+                                            box-shadow: ${previewOnly ? '0 4px 20px rgba(0, 0, 0, 0.3)' : 'none'};
         }
 
-        .page-header {
-            display: ${settings.includeInstitutionInfo ? 'block' : 'none'};
-            border-bottom: 3px solid #0d6efd;
-            padding-bottom: 15px;
-            margin-bottom: 15px;
+                                            .page-header {
+                                                display: ${settings.includeInstitutionInfo ? 'block' : 'none'};
+                                            border-bottom: 3px solid #0d6efd;
+                                            padding-bottom: 15px;
+                                            margin-bottom: 15px;
         }
 
-        .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
+                                            .header-content {
+                                                display: flex;
+                                            justify-content: space-between;
+                                            align-items: flex-start;
         }
 
-        .hospital-info h2 {
-            color: #0d6efd;
-            font-size: 22px;
-            margin-bottom: 5px;
+                                            .hospital-info h2 {
+                                                color: #0d6efd;
+                                            font-size: 22px;
+                                            margin-bottom: 5px;
         }
 
-        .hospital-info p {
-            font-size: 12px;
-            color: #666;
+                                            .hospital-info p {
+                                                font - size: 12px;
+                                            color: #666;
         }
 
-        .patient-info {
-            text-align: right;
-            font-size: 12px;
+                                            .patient-info {
+                                                text - align: right;
+                                            font-size: 12px;
         }
 
-        .patient-info strong {
-            font-size: 14px;
-            color: #333;
+                                            .patient-info strong {
+                                                font - size: 14px;
+                                            color: #333;
         }
 
-        .viewport-grid {
-            display: grid;
-            grid-template-columns: repeat(${cols}, 1fr);
-            grid-template-rows: repeat(${rows}, 1fr);
-            gap: 10px;
-            min-height: ${settings.orientation === 'landscape' ? '160mm' : '240mm'};
+                                            .viewport-grid {
+                                                display: grid;
+                                            grid-template-columns: repeat(${cols}, 1fr);
+                                            grid-template-rows: repeat(${rows}, 1fr);
+                                            gap: 10px;
+                                            min-height: ${settings.orientation === 'landscape' ? '160mm' : '240mm'};
         }
 
-        .viewport-cell {
-            position: relative;
-            background: #000;
-            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
-            border-radius: 6px;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+                                            .viewport-cell {
+                                                position: relative;
+                                            background: #000;
+                                            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
+                                            border-radius: 6px;
+                                            overflow: hidden;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
         }
 
-        .viewport-cell img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
+                                            .viewport-cell img {
+                                                max - width: 100%;
+                                            max-height: 100%;
+                                            object-fit: contain;
         }
 
-        .viewport-overlay {
-            position: absolute;
-            color: #00ff00;
-            font-size: 10px;
-            font-family: 'Consolas', monospace;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.9);
-            padding: 4px 8px;
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 3px;
+                                            .viewport-overlay {
+                                                position: absolute;
+                                            color: #00ff00;
+                                            font-size: 10px;
+                                            font-family: 'Consolas', monospace;
+                                            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.9);
+                                            padding: 4px 8px;
+                                            background: rgba(0, 0, 0, 0.7);
+                                            border-radius: 3px;
         }
 
-        .overlay-top-left { top: 8px; left: 8px; }
-        .overlay-top-right { top: 8px; right: 8px; text-align: right; }
-        .overlay-bottom-left { bottom: 8px; left: 8px; }
-        .overlay-bottom-right { bottom: 8px; right: 8px; text-align: right; }
+                                            .overlay-top-left {top: 8px; left: 8px; }
+                                            .overlay-top-right {top: 8px; right: 8px; text-align: right; }
+                                            .overlay-bottom-left {bottom: 8px; left: 8px; }
+                                            .overlay-bottom-right {bottom: 8px; right: 8px; text-align: right; }
 
-        .page-footer {
-            border-top: 2px solid #ddd;
-            padding-top: 10px;
-            margin-top: 15px;
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: #666;
+                                            .page-footer {
+                                                border - top: 2px solid #ddd;
+                                            padding-top: 10px;
+                                            margin-top: 15px;
+                                            display: flex;
+                                            justify-content: space-between;
+                                            font-size: 10px;
+                                            color: #666;
         }
-    </style>
-</head>
-<body>
-    ${previewOnly ? `
+                                        </style>
+                                </head>
+                                <body>
+                                    ${previewOnly ? `
     <div class="print-toolbar no-print">
         <h4>Print Preview - ${viewportState.viewports.length} viewports (${viewportState.layout} layout)</h4>
         <div>
@@ -2369,9 +2437,9 @@ window.DICOM_VIEWER.PrintManager = class {
     </div>
     ` : ''}
 
-    <div class="print-content">
-        <div class="print-page">
-            ${settings.includeInstitutionInfo ? `
+                                    <div class="print-content">
+                                        <div class="print-page">
+                                            ${settings.includeInstitutionInfo ? `
             <div class="page-header">
                 <div class="header-content">
                     <div class="hospital-info">
@@ -2391,8 +2459,8 @@ window.DICOM_VIEWER.PrintManager = class {
             </div>
             ` : ''}
 
-            <div class="viewport-grid">
-                ${viewportState.viewports.map(vp => `
+                                            <div class="viewport-grid">
+                                                ${viewportState.viewports.map(vp => `
                     <div class="viewport-cell">
                         <img src="${vp.dataUrl}" alt="${vp.name}">
                         ${settings.includePatientInfo ? `
@@ -2407,18 +2475,18 @@ window.DICOM_VIEWER.PrintManager = class {
                         ` : ''}
                     </div>
                 `).join('')}
-            </div>
+                                            </div>
 
-            <div class="page-footer">
-                <span>${settings.includeTimestamp ? `Generated: ${new Date().toLocaleString()}` : ''}</span>
-                <span>DICOM Viewer - Accurate Diagnostics</span>
-                <span>For Medical Use Only</span>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-        `;
+                                            <div class="page-footer">
+                                                <span>${settings.includeTimestamp ? `Generated: ${new Date().toLocaleString()}` : ''}</span>
+                                                <span>DICOM Viewer - Accurate Diagnostics</span>
+                                                <span>For Medical Use Only</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </body>
+                            </html>
+                    `;
     }
 
     async printReport(reportId, previewOnly = false) {
@@ -2426,7 +2494,7 @@ window.DICOM_VIEWER.PrintManager = class {
 
         try {
             const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
-            const response = await fetch(`${basePath}/api/reports/by-id.php?id=${reportId}`);
+            const response = await fetch(`${basePath} /api/reports / by - id.php ? id = ${reportId} `);
             const data = await response.json();
 
             if (!data.success || !data.data) {
@@ -2474,188 +2542,188 @@ window.DICOM_VIEWER.PrintManager = class {
         const settings = this.printSettings;
 
         return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Medical Report - ${report.patient_name}</title>
-    <style>
-        @page {
-            size: A4 portrait;
-            margin: 15mm;
+                        < !DOCTYPE html >
+                            <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                        <title>Medical Report - ${report.patient_name}</title>
+                                        <style>
+                                            @page {
+                                                size: A4 portrait;
+                                            margin: 15mm;
         }
 
-        @media print {
-            body { margin: 0; padding: 0; }
-            .no-print { display: none !important; }
-            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                                            @media print {
+                                                body {margin: 0; padding: 0; }
+                                            .no-print {display: none !important; }
+                                            * {-webkit - print - color - adjust: exact !important; print-color-adjust: exact !important; }
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            * {margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: ${previewOnly ? '#f5f5f5' : '#fff'};
-            color: #000;
-            line-height: 1.6;
+                                            body {
+                                                font - family: 'Segoe UI', Arial, sans-serif;
+                                            background: ${previewOnly ? '#f5f5f5' : '#fff'};
+                                            color: #000;
+                                            line-height: 1.6;
         }
 
-        .print-toolbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: #1a1a2e;
-            padding: 15px 30px;
-            display: flex;
-            justify-content: space-between;
-            z-index: 1000;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                                            .print-toolbar {
+                                                position: fixed;
+                                            top: 0;
+                                            left: 0;
+                                            right: 0;
+                                            background: #1a1a2e;
+                                            padding: 15px 30px;
+                                            display: flex;
+                                            justify-content: space-between;
+                                            z-index: 1000;
+                                            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
 
-        .print-toolbar h4 {
-            color: #fff;
-            margin: 0;
+                                            .print-toolbar h4 {
+                                                color: #fff;
+                                            margin: 0;
         }
 
-        .print-toolbar button {
-            padding: 10px 24px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
+                                            .print-toolbar button {
+                                                padding: 10px 24px;
+                                            border: none;
+                                            border-radius: 6px;
+                                            cursor: pointer;
+                                            font-weight: 600;
         }
 
-        .btn-print {
-            background: #0d6efd;
-            color: #fff;
-            margin-right: 10px;
+                                            .btn-print {
+                                                background: #0d6efd;
+                                            color: #fff;
+                                            margin-right: 10px;
         }
 
-        .btn-close {
-            background: #6c757d;
-            color: #fff;
+                                            .btn-close {
+                                                background: #6c757d;
+                                            color: #fff;
         }
 
-        .report-content {
-            padding-top: ${previewOnly ? '80px' : '0'};
-            max-width: 210mm;
-            margin: 0 auto;
-            background: #fff;
-            padding: ${previewOnly ? '80px 40px 40px' : '40px'};
+                                            .report-content {
+                                                padding - top: ${previewOnly ? '80px' : '0'};
+                                            max-width: 210mm;
+                                            margin: 0 auto;
+                                            background: #fff;
+                                            padding: ${previewOnly ? '80px 40px 40px' : '40px'};
         }
 
-        .report-header {
-            text-align: center;
-            border-bottom: 3px solid #0d6efd;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
+                                            .report-header {
+                                                text - align: center;
+                                            border-bottom: 3px solid #0d6efd;
+                                            padding-bottom: 20px;
+                                            margin-bottom: 30px;
         }
 
-        .hospital-logo {
-            max-width: 120px;
-            max-height: 80px;
-            margin-bottom: 15px;
+                                            .hospital-logo {
+                                                max - width: 120px;
+                                            max-height: 80px;
+                                            margin-bottom: 15px;
         }
 
-        .report-header h1 {
-            color: #0d6efd;
-            font-size: 28px;
-            margin-bottom: 10px;
+                                            .report-header h1 {
+                                                color: #0d6efd;
+                                            font-size: 28px;
+                                            margin-bottom: 10px;
         }
 
-        .report-header p {
-            color: #666;
-            font-size: 14px;
+                                            .report-header p {
+                                                color: #666;
+                                            font-size: 14px;
         }
 
-        .patient-section {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
+                                            .patient-section {
+                                                background: #f8f9fa;
+                                            padding: 20px;
+                                            border-radius: 8px;
+                                            margin-bottom: 30px;
         }
 
-        .patient-section h3 {
-            color: #333;
-            font-size: 18px;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #0d6efd;
-            padding-bottom: 8px;
+                                            .patient-section h3 {
+                                                color: #333;
+                                            font-size: 18px;
+                                            margin-bottom: 15px;
+                                            border-bottom: 2px solid #0d6efd;
+                                            padding-bottom: 8px;
         }
 
-        .patient-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
+                                            .patient-grid {
+                                                display: grid;
+                                            grid-template-columns: repeat(2, 1fr);
+                                            gap: 12px;
         }
 
-        .patient-field {
-            font-size: 13px;
+                                            .patient-field {
+                                                font - size: 13px;
         }
 
-        .patient-field strong {
-            color: #555;
-            display: block;
-            margin-bottom: 2px;
+                                            .patient-field strong {
+                                                color: #555;
+                                            display: block;
+                                            margin-bottom: 2px;
         }
 
-        .report-section {
-            margin-bottom: 25px;
+                                            .report-section {
+                                                margin - bottom: 25px;
         }
 
-        .report-section h4 {
-            color: #0d6efd;
-            font-size: 16px;
-            margin-bottom: 12px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid #dee2e6;
+                                            .report-section h4 {
+                                                color: #0d6efd;
+                                            font-size: 16px;
+                                            margin-bottom: 12px;
+                                            padding-bottom: 6px;
+                                            border-bottom: 1px solid #dee2e6;
         }
 
-        .report-section p {
-            font-size: 13px;
-            color: #333;
-            white-space: pre-wrap;
-            line-height: 1.8;
+                                            .report-section p {
+                                                font - size: 13px;
+                                            color: #333;
+                                            white-space: pre-wrap;
+                                            line-height: 1.8;
         }
 
-        .report-footer {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 2px solid #dee2e6;
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 30px;
+                                            .report-footer {
+                                                margin - top: 40px;
+                                            padding-top: 20px;
+                                            border-top: 2px solid #dee2e6;
+                                            display: grid;
+                                            grid-template-columns: repeat(2, 1fr);
+                                            gap: 30px;
         }
 
-        .signature-box {
-            text-align: center;
+                                            .signature-box {
+                                                text - align: center;
         }
 
-        .signature-line {
-            border-top: 2px solid #333;
-            margin: 60px auto 10px;
-            width: 200px;
+                                            .signature-line {
+                                                border - top: 2px solid #333;
+                                            margin: 60px auto 10px;
+                                            width: 200px;
         }
 
-        .signature-box p {
-            font-size: 12px;
-            color: #666;
+                                            .signature-box p {
+                                                font - size: 12px;
+                                            color: #666;
         }
 
-        .report-meta {
-            margin-top: 30px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            font-size: 11px;
-            color: #666;
-            text-align: center;
+                                            .report-meta {
+                                                margin - top: 30px;
+                                            padding: 15px;
+                                            background: #f8f9fa;
+                                            border-radius: 6px;
+                                            font-size: 11px;
+                                            color: #666;
+                                            text-align: center;
         }
-    </style>
-</head>
-<body>
-    ${previewOnly ? `
+                                        </style>
+                                </head>
+                                <body>
+                                    ${previewOnly ? `
     <div class="print-toolbar no-print">
         <h4>Medical Report Preview</h4>
         <div>
@@ -2696,88 +2764,88 @@ window.DICOM_VIEWER.PrintManager = class {
     </script>
     ` : ''}
 
-    <div class="report-content">
-        <div class="report-header">
-            ${report.hospital_logo ? `<img src="${report.hospital_logo}" alt="Hospital Logo" class="hospital-logo">` : ''}
-            <h1>${report.institution_name || 'Medical Imaging Center'}</h1>
-            <p>Department of Radiology & Medical Imaging</p>
-            <p>Diagnostic Imaging Report</p>
-        </div>
+                                    <div class="report-content">
+                                        <div class="report-header">
+                                            ${report.hospital_logo ? `<img src="${report.hospital_logo}" alt="Hospital Logo" class="hospital-logo">` : ''}
+                                            <h1>${report.institution_name || 'Medical Imaging Center'}</h1>
+                                            <p>Department of Radiology & Medical Imaging</p>
+                                            <p>Diagnostic Imaging Report</p>
+                                        </div>
 
-        <div class="patient-section">
-            <h3>Patient Information</h3>
-            <div class="patient-grid">
-                <div class="patient-field">
-                    <strong>Patient Name:</strong>
-                    ${report.patient_name || 'N/A'}
-                </div>
-                <div class="patient-field">
-                    <strong>Patient ID:</strong>
-                    ${report.patient_id || 'N/A'}
-                </div>
-                <div class="patient-field">
-                    <strong>Age:</strong>
-                    ${report.patient_age || 'N/A'}
-                </div>
-                <div class="patient-field">
-                    <strong>Sex:</strong>
-                    ${report.patient_sex || 'N/A'}
-                </div>
-                <div class="patient-field">
-                    <strong>Study Date:</strong>
-                    ${report.study_date || 'N/A'}
-                </div>
-                <div class="patient-field">
-                    <strong>Accession Number:</strong>
-                    ${report.accession_number || 'N/A'}
-                </div>
-            </div>
-        </div>
+                                        <div class="patient-section">
+                                            <h3>Patient Information</h3>
+                                            <div class="patient-grid">
+                                                <div class="patient-field">
+                                                    <strong>Patient Name:</strong>
+                                                    ${report.patient_name || 'N/A'}
+                                                </div>
+                                                <div class="patient-field">
+                                                    <strong>Patient ID:</strong>
+                                                    ${report.patient_id || 'N/A'}
+                                                </div>
+                                                <div class="patient-field">
+                                                    <strong>Age:</strong>
+                                                    ${report.patient_age || 'N/A'}
+                                                </div>
+                                                <div class="patient-field">
+                                                    <strong>Sex:</strong>
+                                                    ${report.patient_sex || 'N/A'}
+                                                </div>
+                                                <div class="patient-field">
+                                                    <strong>Study Date:</strong>
+                                                    ${report.study_date || 'N/A'}
+                                                </div>
+                                                <div class="patient-field">
+                                                    <strong>Accession Number:</strong>
+                                                    ${report.accession_number || 'N/A'}
+                                                </div>
+                                            </div>
+                                        </div>
 
-        <div class="report-section">
-            <h4>Clinical Information</h4>
-            <p>${report.clinical_info || report.indication || 'No clinical information provided.'}</p>
-        </div>
+                                        <div class="report-section">
+                                            <h4>Clinical Information</h4>
+                                            <p>${report.clinical_info || report.indication || 'No clinical information provided.'}</p>
+                                        </div>
 
-        <div class="report-section">
-            <h4>Imaging Findings</h4>
-            <p>${report.findings || 'No findings recorded.'}</p>
-        </div>
+                                        <div class="report-section">
+                                            <h4>Imaging Findings</h4>
+                                            <p>${report.findings || 'No findings recorded.'}</p>
+                                        </div>
 
-        <div class="report-section">
-            <h4>Impression</h4>
-            <p>${report.impression || 'No impression recorded.'}</p>
-        </div>
+                                        <div class="report-section">
+                                            <h4>Impression</h4>
+                                            <p>${report.impression || 'No impression recorded.'}</p>
+                                        </div>
 
-        ${report.recommendations ? `
+                                        ${report.recommendations ? `
         <div class="report-section">
             <h4>Recommendations</h4>
             <p>${report.recommendations}</p>
         </div>
         ` : ''}
 
-        <div class="report-footer">
-            <div class="signature-box">
-                <div class="signature-line"></div>
-                <p><strong>${report.radiologist_name || 'Radiologist'}</strong></p>
-                <p>${report.radiologist_license || ''}</p>
-            </div>
-            <div class="signature-box">
-                <div class="signature-line"></div>
-                <p><strong>Verified By</strong></p>
-                <p>Date: ${new Date(report.updated_at || report.created_at).toLocaleDateString()}</p>
-            </div>
-        </div>
+                                        <div class="report-footer">
+                                            <div class="signature-box">
+                                                <div class="signature-line"></div>
+                                                <p><strong>${report.radiologist_name || 'Radiologist'}</strong></p>
+                                                <p>${report.radiologist_license || ''}</p>
+                                            </div>
+                                            <div class="signature-box">
+                                                <div class="signature-line"></div>
+                                                <p><strong>Verified By</strong></p>
+                                                <p>Date: ${new Date(report.updated_at || report.created_at).toLocaleDateString()}</p>
+                                            </div>
+                                        </div>
 
-        <div class="report-meta">
-            <p>Report ID: ${report.id} | Status: ${(report.status || 'draft').toUpperCase()}</p>
-            <p>Generated: ${new Date().toLocaleString()} | This is an electronically generated report</p>
-            <p><strong>FOR MEDICAL USE ONLY - CONFIDENTIAL</strong></p>
-        </div>
-    </div>
-</body>
-</html>
-        `;
+                                        <div class="report-meta">
+                                            <p>Report ID: ${report.id} | Status: ${(report.status || 'draft').toUpperCase()}</p>
+                                            <p>Generated: ${new Date().toLocaleString()} | This is an electronically generated report</p>
+                                            <p><strong>FOR MEDICAL USE ONLY - CONFIDENTIAL</strong></p>
+                                        </div>
+                                    </div>
+                                </body>
+                            </html>
+                    `;
     }
 
     // Loading modal helpers
@@ -2785,17 +2853,17 @@ window.DICOM_VIEWER.PrintManager = class {
         let modal = document.getElementById('printLoadingModalV3');
         if (!modal) {
             const html = `
-                <div id="printLoadingModalV3" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background: rgba(0,0,0,0.8); z-index: 9999;">
-                    <div class="bg-dark text-light p-4 rounded-3 text-center border border-primary" style="min-width: 350px;">
-                        <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
-                        <div id="printLoadingMessageV3" class="mb-3 fs-5">${message}</div>
-                        <div class="progress" style="height: 8px;">
-                            <div id="printLoadingProgressV3" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: ${progress}%"></div>
-                        </div>
-                        <small class="text-muted mt-2 d-block" id="printLoadingPercentV3">${progress}%</small>
-                    </div>
-                </div>
-            `;
+                        < div id = "printLoadingModalV3" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style = "background: rgba(0,0,0,0.8); z-index: 9999;" >
+                            <div class="bg-dark text-light p-4 rounded-3 text-center border border-primary" style="min-width: 350px;">
+                                <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+                                <div id="printLoadingMessageV3" class="mb-3 fs-5">${message}</div>
+                                <div class="progress" style="height: 8px;">
+                                    <div id="printLoadingProgressV3" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: ${progress}%"></div>
+                                </div>
+                                <small class="text-muted mt-2 d-block" id="printLoadingPercentV3">${progress}%</small>
+                            </div>
+                </div >
+                        `;
             document.body.insertAdjacentHTML('beforeend', html);
         } else {
             this.updateLoadingProgress(message, progress);
@@ -2808,8 +2876,8 @@ window.DICOM_VIEWER.PrintManager = class {
         const percentEl = document.getElementById('printLoadingPercentV3');
 
         if (messageEl) messageEl.textContent = message;
-        if (progressEl) progressEl.style.width = `${progress}%`;
-        if (percentEl) percentEl.textContent = `${progress}%`;
+        if (progressEl) progressEl.style.width = `${progress}% `;
+        if (percentEl) percentEl.textContent = `${progress}% `;
     }
 
     hideLoadingModal() {
@@ -2824,27 +2892,27 @@ window.DICOM_VIEWER.PrintManager = class {
     showPcpndtPrompt() {
         // Create prompt modal HTML
         const modalHTML = `
-            <div id="pcpndtPromptModal" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" 
-                 style="background: rgba(0,0,0,0.8); z-index: 99999;">
-                <div class="card text-white" style="background: #1a1f3a; border: 2px solid #0d6efd; border-radius: 15px; max-width: 400px;">
-                    <div class="card-body text-center p-4">
-                        <div class="mb-3">
-                            <i class="bi bi-file-medical-fill text-success" style="font-size: 3rem;"></i>
+                        < div id = "pcpndtPromptModal" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                    style = "background: rgba(0,0,0,0.8); z-index: 99999;" >
+                        <div class="card text-white" style="background: #1a1f3a; border: 2px solid #0d6efd; border-radius: 15px; max-width: 400px;">
+                            <div class="card-body text-center p-4">
+                                <div class="mb-3">
+                                    <i class="bi bi-file-medical-fill text-success" style="font-size: 3rem;"></i>
+                                </div>
+                                <h5 class="mb-3">PCPNDT Form F</h5>
+                                <p class="text-muted mb-4">Do you want to print PCPNDT Form F (Pre-Conception and Pre-Natal Diagnostic Techniques compliance form)?</p>
+                                <div class="d-flex gap-2 justify-content-center">
+                                    <button id="pcpndtYesBtn" class="btn btn-success px-4">
+                                        <i class="bi bi-check-lg me-1"></i> Yes, Print
+                                    </button>
+                                    <button id="pcpndtNoBtn" class="btn btn-secondary px-4">
+                                        <i class="bi bi-x-lg me-1"></i> No, Skip
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        <h5 class="mb-3">PCPNDT Form F</h5>
-                        <p class="text-muted mb-4">Do you want to print PCPNDT Form F (Pre-Conception and Pre-Natal Diagnostic Techniques compliance form)?</p>
-                        <div class="d-flex gap-2 justify-content-center">
-                            <button id="pcpndtYesBtn" class="btn btn-success px-4">
-                                <i class="bi bi-check-lg me-1"></i> Yes, Print
-                            </button>
-                            <button id="pcpndtNoBtn" class="btn btn-secondary px-4">
-                                <i class="bi bi-x-lg me-1"></i> No, Skip
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+            </div >
+                        `;
 
         // Remove any existing modal
         document.getElementById('pcpndtPromptModal')?.remove();
@@ -2910,7 +2978,7 @@ window.DICOM_VIEWER.PrintManager = class {
 
             const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
             try {
-                const response = await fetch(`${basePath}/api/settings/get-settings.php`);
+                const response = await fetch(`${basePath} /api/settings / get - settings.php`);
                 const data = await response.json();
                 if (data.success && data.settings) {
                     pcpndtSettings.paperSize = data.settings.pcpndt_default_paper_size || 'A5';
@@ -2968,132 +3036,132 @@ window.DICOM_VIEWER.PrintManager = class {
         const isGrayscale = settings.colorMode === 'grayscale';
 
         return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>PCPNDT Form F - ${patientInfo.name}</title>
-    <style>
-        @page {
-            size: ${settings.paperSize} portrait;
-            margin: 10mm;
+                        < !DOCTYPE html >
+                            <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                        <title>PCPNDT Form F - ${patientInfo.name}</title>
+                                        <style>
+                                            @page {
+                                                size: ${settings.paperSize} portrait;
+                                            margin: 10mm;
         }
 
-        @media print {
-            body { margin: 0; padding: 0; }
-            .no-print { display: none !important; }
-            ${isGrayscale ? '* { filter: grayscale(100%); -webkit-filter: grayscale(100%); }' : ''}
+                                            @media print {
+                                                body {margin: 0; padding: 0; }
+                                            .no-print {display: none !important; }
+                                            ${isGrayscale ? '* { filter: grayscale(100%); -webkit-filter: grayscale(100%); }' : ''}
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            * {margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            font-family: 'Times New Roman', serif;
-            font-size: ${isA4 ? '12pt' : '10pt'};
-            background: ${previewOnly ? '#2d2d2d' : '#fff'};
-            color: #000;
-            ${isGrayscale ? 'filter: grayscale(100%);' : ''}
+                                            body {
+                                                font - family: 'Times New Roman', serif;
+                                            font-size: ${isA4 ? '12pt' : '10pt'};
+                                            background: ${previewOnly ? '#2d2d2d' : '#fff'};
+                                            color: #000;
+                                            ${isGrayscale ? 'filter: grayscale(100%);' : ''}
         }
 
-        .print-toolbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            padding: 15px 30px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 1000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                                            .print-toolbar {
+                                                position: fixed;
+                                            top: 0;
+                                            left: 0;
+                                            right: 0;
+                                            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                                            padding: 15px 30px;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: space-between;
+                                            z-index: 1000;
+                                            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
         }
 
-        .print-toolbar h4 { color: #fff; margin: 0; font-size: 16px; }
-        .btn-print { background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%); color: white; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: 600; margin-right: 10px; }
-        .btn-close { background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; }
+                                            .print-toolbar h4 {color: #fff; margin: 0; font-size: 16px; }
+                                            .btn-print {background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%); color: white; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: 600; margin-right: 10px; }
+                                            .btn-close {background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; }
 
-        .form-container {
-            width: ${isA4 ? '190mm' : '128mm'};
-            min-height: ${isA4 ? '277mm' : '190mm'};
-            padding: 8mm;
-            margin: ${previewOnly ? '60px auto 20px' : '0 auto'};
-            background: #fff;
-            box-shadow: ${previewOnly ? '0 4px 20px rgba(0,0,0,0.4)' : 'none'};
+                                            .form-container {
+                                                width: ${isA4 ? '190mm' : '128mm'};
+                                            min-height: ${isA4 ? '277mm' : '190mm'};
+                                            padding: 8mm;
+                                            margin: ${previewOnly ? '60px auto 20px' : '0 auto'};
+                                            background: #fff;
+                                            box-shadow: ${previewOnly ? '0 4px 20px rgba(0,0,0,0.4)' : 'none'};
         }
 
-        .form-title {
-            text-align: center;
-            font-weight: bold;
-            font-size: ${isA4 ? '14pt' : '11pt'};
-            margin-bottom: 10px;
-            border-bottom: 2px solid #000;
-            padding-bottom: 5px;
+                                            .form-title {
+                                                text - align: center;
+                                            font-weight: bold;
+                                            font-size: ${isA4 ? '14pt' : '11pt'};
+                                            margin-bottom: 10px;
+                                            border-bottom: 2px solid #000;
+                                            padding-bottom: 5px;
         }
 
-        .form-subtitle {
-            text-align: center;
-            font-size: ${isA4 ? '10pt' : '8pt'};
-            margin-bottom: 15px;
-            color: #666;
+                                            .form-subtitle {
+                                                text - align: center;
+                                            font-size: ${isA4 ? '10pt' : '8pt'};
+                                            margin-bottom: 15px;
+                                            color: #666;
         }
 
-        .form-section {
-            margin-bottom: 10px;
+                                            .form-section {
+                                                margin - bottom: 10px;
         }
 
-        .form-row {
-            display: flex;
-            margin-bottom: 5px;
-            font-size: ${isA4 ? '11pt' : '9pt'};
+                                            .form-row {
+                                                display: flex;
+                                            margin-bottom: 5px;
+                                            font-size: ${isA4 ? '11pt' : '9pt'};
         }
 
-        .form-label {
-            min-width: 35%;
-            font-weight: 500;
+                                            .form-label {
+                                                min - width: 35%;
+                                            font-weight: 500;
         }
 
-        .form-value {
-            flex: 1;
-            border-bottom: 1px dotted #999;
-            padding-left: 5px;
+                                            .form-value {
+                                                flex: 1;
+                                            border-bottom: 1px dotted #999;
+                                            padding-left: 5px;
         }
 
-        .declaration {
-            margin-top: 15px;
-            padding: 8px;
-            border: 1px solid #000;
-            font-size: ${isA4 ? '10pt' : '8pt'};
+                                            .declaration {
+                                                margin - top: 15px;
+                                            padding: 8px;
+                                            border: 1px solid #000;
+                                            font-size: ${isA4 ? '10pt' : '8pt'};
         }
 
-        .signature-section {
-            margin-top: 20px;
-            display: flex;
-            justify-content: space-between;
+                                            .signature-section {
+                                                margin - top: 20px;
+                                            display: flex;
+                                            justify-content: space-between;
         }
 
-        .signature-box {
-            text-align: center;
-            width: 45%;
+                                            .signature-box {
+                                                text - align: center;
+                                            width: 45%;
         }
 
-        .signature-line {
-            border-top: 1px solid #000;
-            margin-top: 40px;
-            padding-top: 5px;
-            font-size: ${isA4 ? '10pt' : '8pt'};
+                                            .signature-line {
+                                                border - top: 1px solid #000;
+                                            margin-top: 40px;
+                                            padding-top: 5px;
+                                            font-size: ${isA4 ? '10pt' : '8pt'};
         }
 
-        .footer-note {
-            margin-top: 15px;
-            font-size: ${isA4 ? '9pt' : '7pt'};
-            text-align: center;
-            color: #666;
+                                            .footer-note {
+                                                margin - top: 15px;
+                                            font-size: ${isA4 ? '9pt' : '7pt'};
+                                            text-align: center;
+                                            color: #666;
         }
-    </style>
-</head>
-<body>
-    ${previewOnly ? `
+                                        </style>
+                                </head>
+                                <body>
+                                    ${previewOnly ? `
     <div class="print-toolbar no-print">
         <h4>📋 PCPNDT Form F - Preview</h4>
         <div>
@@ -3103,74 +3171,74 @@ window.DICOM_VIEWER.PrintManager = class {
     </div>
     ` : ''}
 
-    <div class="form-container">
-        <div class="form-title">FORM F</div>
-        <div class="form-subtitle">
-            (As per Rule 9(4) read with Section 5(2) of the Pre-Conception and Pre-Natal Diagnostic Techniques<br>
-            (Prohibition of Sex Selection) Act, 1994 and Rules thereunder)
-        </div>
+                                    <div class="form-container">
+                                        <div class="form-title">FORM F</div>
+                                        <div class="form-subtitle">
+                                            (As per Rule 9(4) read with Section 5(2) of the Pre-Conception and Pre-Natal Diagnostic Techniques<br>
+                                                (Prohibition of Sex Selection) Act, 1994 and Rules thereunder)
+                                        </div>
 
-        <div class="form-section">
-            <div class="form-row">
-                <span class="form-label">1. Name of Centre/Hospital:</span>
-                <span class="form-value">${patientInfo.institution}</span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">2. Registration No. under PCPNDT:</span>
-                <span class="form-value"></span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">3. Name of Patient:</span>
-                <span class="form-value">${patientInfo.name}</span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">4. Patient ID:</span>
-                <span class="form-value">${patientInfo.id}</span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">5. Age/Sex:</span>
-                <span class="form-value">${patientInfo.age} / ${patientInfo.sex}</span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">6. Date of Procedure:</span>
-                <span class="form-value">${patientInfo.studyDate}</span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">7. Type of Procedure:</span>
-                <span class="form-value">${patientInfo.studyDescription}</span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">8. Indication for Procedure:</span>
-                <span class="form-value"></span>
-            </div>
-            <div class="form-row">
-                <span class="form-label">9. Referral (if any):</span>
-                <span class="form-value"></span>
-            </div>
-        </div>
+                                        <div class="form-section">
+                                            <div class="form-row">
+                                                <span class="form-label">1. Name of Centre/Hospital:</span>
+                                                <span class="form-value">${patientInfo.institution}</span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">2. Registration No. under PCPNDT:</span>
+                                                <span class="form-value"></span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">3. Name of Patient:</span>
+                                                <span class="form-value">${patientInfo.name}</span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">4. Patient ID:</span>
+                                                <span class="form-value">${patientInfo.id}</span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">5. Age/Sex:</span>
+                                                <span class="form-value">${patientInfo.age} / ${patientInfo.sex}</span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">6. Date of Procedure:</span>
+                                                <span class="form-value">${patientInfo.studyDate}</span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">7. Type of Procedure:</span>
+                                                <span class="form-value">${patientInfo.studyDescription}</span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">8. Indication for Procedure:</span>
+                                                <span class="form-value"></span>
+                                            </div>
+                                            <div class="form-row">
+                                                <span class="form-label">9. Referral (if any):</span>
+                                                <span class="form-value"></span>
+                                            </div>
+                                        </div>
 
-        <div class="declaration">
-            <strong>DECLARATION</strong><br>
-            I hereby declare that while conducting ultrasonography/image scanning on ${patientInfo.name} 
-            I have neither detected nor disclosed the sex of foetus to anybody in any manner.
-        </div>
+                                        <div class="declaration">
+                                            <strong>DECLARATION</strong><br>
+                                                I hereby declare that while conducting ultrasonography/image scanning on ${patientInfo.name}
+                                                I have neither detected nor disclosed the sex of foetus to anybody in any manner.
+                                        </div>
 
-        <div class="signature-section">
-            <div class="signature-box">
-                <div class="signature-line">Signature of Patient/Guardian</div>
-            </div>
-            <div class="signature-box">
-                <div class="signature-line">Signature of Doctor/Sonologist</div>
-            </div>
-        </div>
+                                        <div class="signature-section">
+                                            <div class="signature-box">
+                                                <div class="signature-line">Signature of Patient/Guardian</div>
+                                            </div>
+                                            <div class="signature-box">
+                                                <div class="signature-line">Signature of Doctor/Sonologist</div>
+                                            </div>
+                                        </div>
 
-        <div class="footer-note">
-            This form is maintained as per PCPNDT Act, 1994 | Printed: ${new Date().toLocaleString()}
-        </div>
-    </div>
-</body>
-</html>
-        `;
+                                        <div class="footer-note">
+                                            This form is maintained as per PCPNDT Act, 1994 | Printed: ${new Date().toLocaleString()}
+                                        </div>
+                                    </div>
+                                </body>
+                            </html>
+                    `;
     }
 
     showToast(message, type = 'info') {
