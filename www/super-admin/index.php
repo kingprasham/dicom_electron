@@ -147,22 +147,34 @@ $recentActivity = ActivityLogger::getActivity(20);
     <div class="container-fluid px-4">
         <!-- Stats -->
         <div class="row mb-4">
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
                 <div class="stat-card">
                     <h2><?= $totalLicenses ?></h2>
                     <p class="text-muted mb-0">Total Licenses</p>
                 </div>
             </div>
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
                 <div class="stat-card">
                     <h2 class="text-success"><?= $activeLicenses ?></h2>
                     <p class="text-muted mb-0">Active Licenses</p>
                 </div>
             </div>
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
                 <div class="stat-card">
                     <h2 class="text-info"><?= $totalActivations ?></h2>
                     <p class="text-muted mb-0">Active Machines</p>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="stat-card print-stats-card" id="printStatsCard">
+                    <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
+                        <i class="bi bi-printer-fill" style="color: #f97316; font-size: 1.5rem;"></i>
+                        <h2 id="todayPrintCount" style="margin: 0;">-</h2>
+                    </div>
+                    <p class="text-muted mb-1">Today's Prints</p>
+                    <div class="print-stats-mini mt-2" id="printStatsMini">
+                        <small class="text-muted">Loading...</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -489,6 +501,120 @@ $recentActivity = ActivityLogger::getActivity(20);
                 document.getElementById('2faMessage').innerHTML = '<span class="text-danger">Error disabling 2FA</span>';
             }
         }
+
+        // ===== PRINT STATS REAL-TIME UPDATE =====
+        let lastPrintId = 0;
+
+        async function fetchPrintStats() {
+            try {
+                const response = await fetch(`${basePath}/api/print/count.php?period=today`);
+                const data = await response.json();
+
+                if (data.success) {
+                    updatePrintStatsDisplay(data);
+
+                    // Check for new prints and animate
+                    if (lastPrintId > 0 && data.last_print_id > lastPrintId) {
+                        animatePrintCard();
+                    }
+                    lastPrintId = data.last_print_id;
+                }
+            } catch (error) {
+                console.error('Failed to fetch print stats:', error);
+            }
+        }
+
+        function updatePrintStatsDisplay(data) {
+            const counts = data.counts || {};
+
+            // Update main count
+            const countEl = document.getElementById('todayPrintCount');
+            if (countEl) {
+                const oldCount = parseInt(countEl.textContent) || 0;
+                const newCount = counts.total || 0;
+
+                if (newCount !== oldCount) {
+                    countEl.style.transform = 'scale(1.2)';
+                    countEl.textContent = newCount;
+                    setTimeout(() => countEl.style.transform = 'scale(1)', 300);
+                }
+            }
+
+            // Update mini stats
+            const miniEl = document.getElementById('printStatsMini');
+            if (miniEl) {
+                const revenue = new Intl.NumberFormat('en-IN', {
+                    style: 'currency',
+                    currency: 'INR',
+                    maximumFractionDigits: 0
+                }).format(counts.cost || 0);
+
+                miniEl.innerHTML = `
+                    <div class="d-flex justify-content-center gap-3">
+                        <span class="badge bg-success bg-opacity-25 text-success">
+                            <i class="bi bi-check-circle"></i> ${counts.completed || 0}
+                        </span>
+                        <span class="badge bg-warning bg-opacity-25 text-warning">
+                            <i class="bi bi-hourglass"></i> ${counts.pending || 0}
+                        </span>
+                    </div>
+                    <div class="mt-2">
+                        <span class="badge" style="background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(234, 88, 12, 0.3)); color: #f97316;">
+                            <i class="bi bi-currency-rupee"></i> ${revenue}
+                        </span>
+                    </div>
+                `;
+            }
+
+            // Update by license breakdown if available
+            if (data.by_license && data.by_license.length > 0) {
+                updateLicenseBreakdown(data.by_license);
+            }
+        }
+
+        function updateLicenseBreakdown(byLicense) {
+            // Find or create the breakdown container
+            let container = document.getElementById('printsByLicense');
+            if (!container) {
+                const printCard = document.getElementById('printStatsCard');
+                if (printCard) {
+                    const breakdown = document.createElement('div');
+                    breakdown.id = 'printsByLicense';
+                    breakdown.className = 'mt-2 pt-2 border-top border-secondary';
+                    breakdown.style.fontSize = '0.75rem';
+                    printCard.appendChild(breakdown);
+                    container = breakdown;
+                }
+            }
+
+            if (container && byLicense.length > 0) {
+                const items = byLicense.slice(0, 3).map(l => {
+                    const key = l.license_key ? l.license_key.substring(0, 8) + '...' : 'Unknown';
+                    return `<span class="text-muted">${key}: ${l.prints}</span>`;
+                }).join(' | ');
+
+                container.innerHTML = items;
+            }
+        }
+
+        function animatePrintCard() {
+            const card = document.getElementById('printStatsCard');
+            if (card) {
+                card.style.boxShadow = '0 0 20px rgba(34, 197, 94, 0.5)';
+                card.style.borderColor = 'rgba(34, 197, 94, 0.5)';
+                setTimeout(() => {
+                    card.style.boxShadow = '';
+                    card.style.borderColor = '';
+                }, 600);
+            }
+        }
+
+        // Initial fetch and start polling
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchPrintStats();
+            // Poll every 10 seconds
+            setInterval(fetchPrintStats, 10000);
+        });
     </script>
 </body>
 </html>
