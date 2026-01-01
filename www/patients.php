@@ -691,7 +691,7 @@ $stmt->close();
                                 </div>
                             </td>
                             <td onclick="window.location.href='<?= BASE_PATH ?>/patient-studies.php?patient_id=<?= urlencode($patient['orthanc_id']) ?>'" style="cursor:pointer"><?= htmlspecialchars($patient['patient_id']) ?></td>
-                            <td onclick="window.location.href='<?= BASE_PATH ?>/patient-studies.php?patient_id=<?= urlencode($patient['orthanc_id']) ?>'" style="cursor:pointer"><?= $patient['birth_date'] ? htmlspecialchars($patient['birth_date']) : '-' ?></td>
+                            <td onclick="window.location.href='<?= BASE_PATH ?>/patient-studies.php?patient_id=<?= urlencode($patient['orthanc_id']) ?>'" style="cursor:pointer"><?= isset($patient['birth_date']) && $patient['birth_date'] ? htmlspecialchars($patient['birth_date']) : '-' ?></td>
                             <td onclick="window.location.href='<?= BASE_PATH ?>/patient-studies.php?patient_id=<?= urlencode($patient['orthanc_id']) ?>'" style="cursor:pointer"><?= htmlspecialchars($patient['sex'] ?? '-') ?></td>
                             <td onclick="window.location.href='<?= BASE_PATH ?>/patient-studies.php?patient_id=<?= urlencode($patient['orthanc_id']) ?>'" style="cursor:pointer">
                                 <?php if ($patient['latest_study_datetime']): ?>
@@ -740,6 +740,12 @@ $stmt->close();
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Print System Components (required for Electron print functionality) -->
+    <script src="<?= BASE_PATH ?>/js/components/print-tracker.js?v=<?= time() ?>"></script>
+    <script src="<?= BASE_PATH ?>/js/components/custom-print-dialog.js?v=<?= time() ?>"></script>
+    <script src="<?= BASE_PATH ?>/js/components/print-manager-v3.js?v=<?= time() ?>"></script>
+
     <!-- Print Counter Badge Component -->
     <script src="<?= BASE_PATH ?>/js/components/print-counter-badge.js"></script>
     <script>

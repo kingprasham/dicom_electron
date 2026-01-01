@@ -29,7 +29,701 @@ window.DICOM_VIEWER.PrintManager = class {
 
         // Initialize print tracker if available
         this.printTracker = window.DICOM_VIEWER.printTracker || null;
+
+        console.log('[PrintManager] Electron mode at init:', this.isElectron);
+        console.log('[PrintManager] Custom print dialog available at init:', !!window.DICOM_VIEWER.customPrintDialog);
+
+        // Listen for print requests from preview windows
+        this.setupPreviewPrintListener();
     }
+
+    /**
+     * Get custom print dialog instance (always check latest value)
+     * This ensures we pick up the dialog even if it wasn't ready during init
+     */
+    get customPrintDialog() {
+        return window.DICOM_VIEWER.customPrintDialog || null;
+    }
+
+    /**
+     * Check if running in Electron (always evaluate current state)
+     * This ensures we detect Electron even if preload script loaded after PrintManager init
+     */
+    get isElectron() {
+        return !!(window.electronAPI && window.electronAPI.isElectron);
+    }
+
+    /**
+     * Setup listener for print requests from preview popup windows
+     */
+    setupPreviewPrintListener() {
+        window.addEventListener('message', async (event) => {
+            // Verify the message is from our preview window
+            if (event.data && event.data.type === 'DICOM_PRINT_REQUEST') {
+                console.log('[PrintManager] Received print request from preview window');
+                console.log('[PrintManager]   - isElectron:', this.isElectron);
+                console.log('[PrintManager]   - customPrintDialog available:', !!this.customPrintDialog);
+                console.log('[PrintManager]   - customPrintDialog.isAvailable():', this.customPrintDialog?.isAvailable());
+
+                const { htmlContent, printSettings } = event.data;
+
+                if (this.isElectron && this.customPrintDialog && this.customPrintDialog.isAvailable()) {
+                    // Bring main window to front so the modal is visible
+                    console.log('[PrintManager] Bringing main window to front using Electron API...');
+
+                    // Use Electron API to properly bring window to front at OS level
+                    if (window.electronAPI && window.electronAPI.focusMainWindow) {
+                        window.electronAPI.focusMainWindow().then(() => {
+                            console.log('[PrintManager] Main window focused successfully');
+                        }).catch(err => {
+                            console.warn('[PrintManager] Failed to focus window:', err);
+                        });
+                    }
+                    window.focus(); // Fallback for non-Electron
+
+                    // Small delay to ensure window is focused before showing modal
+                    setTimeout(() => {
+                        // Use custom print dialog
+                        this.customPrintDialog.show({
+                            printSettings: {
+                                ...this.getEffectivePrintSettings(),
+                                ...(printSettings || {})
+                            },
+                            onPrint: async (result) => {
+                                try {
+                                    const printResult = await this.customPrintDialog.printContent(
+                                        htmlContent,
+                                        result.printerName,
+                                        result.printSettings
+                                    );
+
+                                    // Notify the preview window of the result
+                                    if (event.source && typeof event.source.postMessage === 'function') {
+                                        event.source.postMessage({
+                                            type: 'DICOM_PRINT_RESULT',
+                                            success: printResult.success,
+                                            error: printResult.error
+                                        }, '*');
+                                    }
+
+                                    if (printResult.success) {
+                                        this.updatePrintStatus('completed');
+                                    }
+                                } catch (error) {
+                                    console.error('[PrintManager] Preview print error:', error);
+                                }
+                            }
+                        });
+                    }, 100); // 100ms delay to ensure window is focused
+                } else {
+                    // Not in Electron - show configuration required message
+                    console.warn('[PrintManager] Not in Electron or custom dialog not available');
+                    if (event.source && typeof event.source.postMessage === 'function') {
+                        event.source.postMessage({
+                            type: 'DICOM_PRINT_BLOCKED',
+                            message: 'Printing requires authorized printer configuration'
+                        }, '*');
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Execute print with custom printer selection dialog (Electron only)
+     * BLOCKS system print dialog - only allows printing through authorized printers
+     *
+     * @param {Window} printWindow - The window containing content to print
+     * @param {Object} printSettings - Print settings (paperSize, orientation, etc.)
+     * @param {Function} onSuccess - Callback on successful print
+     * @param {Function} onError - Callback on print error
+     */
+    async executePrintWithCustomDialog(printWindow, printSettings = {}, onSuccess = null, onError = null) {
+        // Log current state for debugging
+        console.log('[PrintManager] executePrintWithCustomDialog called');
+        console.log('[PrintManager]   - isElectron:', this.isElectron);
+        console.log('[PrintManager]   - customPrintDialog available:', !!this.customPrintDialog);
+        console.log('[PrintManager]   - window.electronAPI:', !!window.electronAPI);
+
+        // ALWAYS use custom print dialog in Electron - never show system dialog
+        if (this.isElectron && this.customPrintDialog) {
+            console.log('[PrintManager] Using custom print dialog (blocking system dialog)');
+
+            // Get the HTML content from the print window
+            const htmlContent = printWindow.document.documentElement.outerHTML;
+
+            // Show custom printer selection dialog - this will block if no printers configured
+            this.customPrintDialog.show({
+                printSettings: {
+                    ...this.getEffectivePrintSettings(),
+                    ...printSettings
+                },
+                onPrint: async (result) => {
+                    console.log('[PrintManager] Custom dialog print confirmed:', result);
+
+                    try {
+                        // Use Electron's silent print with selected printer
+                        const printResult = await this.customPrintDialog.printContent(
+                            htmlContent,
+                            result.printerName,
+                            result.printSettings
+                        );
+
+                        if (printResult.success) {
+                            if (onSuccess) onSuccess();
+                            this.updatePrintStatus('completed');
+                        } else {
+                            // DO NOT fall back to window.print() - show error instead
+                            console.error('[PrintManager] Print failed:', printResult.error);
+                            this.showToast('Print failed: ' + (printResult.error || 'Unknown error'), 'error');
+                            if (onError) onError(printResult.error);
+                            this.updatePrintStatus('failed', printResult.error);
+                        }
+                    } catch (error) {
+                        console.error('[PrintManager] Print error:', error);
+                        this.showToast('Print error: ' + error.message, 'error');
+                        if (onError) onError(error.message);
+                        this.updatePrintStatus('failed', error.message);
+                    }
+                },
+                onCancel: () => {
+                    console.log('[PrintManager] Print cancelled by user');
+                }
+            });
+        } else if (this.isElectron) {
+            // Electron but custom dialog not ready - show warning
+            console.warn('[PrintManager] Custom print dialog not initialized');
+            this.showToast('Print system not ready. Please try again.', 'warning');
+        } else {
+            // Web browser - allow system print dialog (non-Electron environments)
+            console.log('[PrintManager] Web browser - using system print dialog');
+            printWindow.print();
+            if (onSuccess) onSuccess();
+        }
+    }
+
+    /**
+     * Direct print using Electron (no preview window)
+     * @param {string} htmlContent - Full HTML document to print
+     * @param {Object} printSettings - Print settings
+     */
+    async directPrintWithDialog(htmlContent, printSettings = {}) {
+        if (this.isElectron && this.customPrintDialog && this.customPrintDialog.isAvailable()) {
+            console.log('[PrintManager] Direct print with custom dialog');
+
+            this.customPrintDialog.show({
+                printSettings: {
+                    ...this.getEffectivePrintSettings(),
+                    ...printSettings
+                },
+                onPrint: async (result) => {
+                    try {
+                        const printResult = await this.customPrintDialog.printContent(
+                            htmlContent,
+                            result.printerName,
+                            result.printSettings
+                        );
+
+                        if (printResult.success) {
+                            this.showToast('Print job sent successfully', 'success');
+                            this.updatePrintStatus('completed');
+                        } else {
+                            this.showToast('Print failed: ' + printResult.error, 'error');
+                            this.updatePrintStatus('failed', printResult.error);
+                        }
+                    } catch (error) {
+                        console.error('[PrintManager] Direct print error:', error);
+                        this.showToast('Print error: ' + error.message, 'error');
+                    }
+                },
+                onCancel: () => {
+                    console.log('[PrintManager] Print cancelled');
+                }
+            });
+        } else {
+            // Fallback: Open in new window and print
+            const printWindow = window.open('', '_blank', 'width=1200,height=900');
+            if (printWindow) {
+                printWindow.document.write(htmlContent);
+                printWindow.document.close();
+                setTimeout(() => printWindow.print(), 500);
+            }
+        }
+    }
+
+    /**
+     * Show print preview in an in-window modal (no popup)
+     * Professional design inspired by Google Docs print preview
+     * @param {string} previewContent - HTML content for the preview (just the pages, not full document)
+     * @param {Object} options - Preview options
+     * @param {string} options.title - Title for the preview modal
+     * @param {number} options.totalPages - Number of pages in the preview
+     * @param {Object} options.printSettings - Print settings to use when printing
+     * @param {Function} options.onPrint - Optional callback before print
+     */
+    showPreviewModal(previewContent, options = {}) {
+        const {
+            title = 'Print Preview',
+            totalPages = 1,
+            printSettings = {},
+            onPrint = null
+        } = options;
+
+        // Remove existing modal if present
+        const existingModal = document.getElementById('printPreviewModal');
+        if (existingModal) existingModal.remove();
+
+        const settings = this.getEffectivePrintSettings();
+        const mergedSettings = { ...settings, ...printSettings };
+        const isLandscape = mergedSettings.orientation === 'landscape';
+
+        // Paper aspect ratios (A4: 210x297mm)
+        // Landscape: width > height (1.414:1)
+        // Portrait: height > width (1:1.414)
+        const paperAspectRatio = isLandscape ? (297 / 210) : (210 / 297);
+
+        const modalHTML = `
+            <div class="modal fade" id="printPreviewModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+                <div class="modal-dialog modal-fullscreen">
+                    <div class="modal-content" style="background: #525659;">
+                        <!-- Top Toolbar -->
+                        <div class="preview-toolbar" style="
+                            background: #333;
+                            padding: 12px 24px;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            border-bottom: 1px solid #444;
+                            flex-shrink: 0;
+                        ">
+                            <!-- Left: Title and info -->
+                            <div class="d-flex align-items-center gap-3">
+                                <button type="button" class="btn btn-link text-white p-0" data-bs-dismiss="modal" style="font-size: 24px; line-height: 1;">
+                                    <i class="bi bi-arrow-left"></i>
+                                </button>
+                                <div>
+                                    <h6 class="mb-0 text-white fw-normal">${title}</h6>
+                                    <small class="text-secondary">${mergedSettings.paperSize} • ${isLandscape ? 'Landscape' : 'Portrait'}</small>
+                                </div>
+                            </div>
+
+                            <!-- Center: Page navigation -->
+                            <div class="d-flex align-items-center gap-3" style="background: rgba(255,255,255,0.1); padding: 6px 16px; border-radius: 8px;">
+                                <button class="btn btn-link text-white p-1" id="prevPageBtn" ${totalPages <= 1 ? 'disabled' : ''}>
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
+                                <span class="text-white" style="min-width: 80px; text-align: center;">
+                                    <span id="currentPageNum">1</span> / ${totalPages}
+                                </span>
+                                <button class="btn btn-link text-white p-1" id="nextPageBtn" ${totalPages <= 1 ? 'disabled' : ''}>
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
+                            </div>
+
+                            <!-- Right: Actions -->
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="btn-group me-2" role="group">
+                                    <button type="button" class="btn btn-outline-light btn-sm" id="zoomOutBtn" title="Zoom Out">
+                                        <i class="bi bi-dash-lg"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-light btn-sm" id="zoomResetBtn" title="Reset Zoom">
+                                        <span id="zoomLevel">100%</span>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-light btn-sm" id="zoomInBtn" title="Zoom In">
+                                        <i class="bi bi-plus-lg"></i>
+                                    </button>
+                                </div>
+                                <button type="button" class="btn btn-primary px-4" id="previewPrintBtn">
+                                    <i class="bi bi-printer-fill me-2"></i>Print
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Preview Area -->
+                        <div class="modal-body p-0" style="overflow-y: auto; background: #525659;">
+                            <div class="preview-scroll-container" style="
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                padding: 40px 20px;
+                                gap: 40px;
+                            " id="previewScrollContainer">
+                                ${previewContent}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <style>
+                /* Preview container styles */
+                #printPreviewModal .preview-scroll-container {
+                    min-height: 100%;
+                }
+                
+                /* Paper page styles - proper aspect ratio */
+                #printPreviewModal .print-page {
+                    background: #fff;
+                    color: #000;
+                    position: relative;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.3), 0 10px 40px rgba(0,0,0,0.2);
+                    transition: transform 0.2s ease;
+                    
+                    /* Proper paper dimensions based on orientation */
+                    ${isLandscape ? `
+                        /* Landscape: wider than tall */
+                        width: min(90vw, 1100px);
+                        aspect-ratio: 1.414 / 1;
+                    ` : `
+                        /* Portrait: taller than wide */
+                        width: min(70vw, 700px);
+                        aspect-ratio: 1 / 1.414;
+                    `}
+                }
+                
+                #printPreviewModal .print-page:hover {
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.4), 0 15px 50px rgba(0,0,0,0.3);
+                }
+
+                /* Inner page content wrapper */
+                #printPreviewModal .page-inner {
+                    padding: ${isLandscape ? '20px 30px' : '25px'};
+                    height: 100%;
+                    display: flex;
+                    flex-direction: column;
+                }
+                
+                /* Page header */
+                #printPreviewModal .page-header {
+                    border-bottom: 2px solid #2563eb;
+                    padding-bottom: 12px;
+                    margin-bottom: 12px;
+                    flex-shrink: 0;
+                }
+                
+                #printPreviewModal .header-content {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    gap: 20px;
+                }
+                
+                #printPreviewModal .hospital-info h2 { 
+                    color: #1e40af; 
+                    font-size: ${isLandscape ? '18px' : '20px'}; 
+                    margin: 0 0 4px 0; 
+                    font-weight: 700;
+                    letter-spacing: -0.5px;
+                }
+                #printPreviewModal .hospital-info p { 
+                    font-size: 11px; 
+                    color: #64748b; 
+                    margin: 0; 
+                }
+                #printPreviewModal .patient-info { 
+                    text-align: right; 
+                    font-size: 11px;
+                    color: #475569;
+                    line-height: 1.6;
+                }
+                #printPreviewModal .patient-info strong { 
+                    font-size: 14px; 
+                    color: #1e293b;
+                    display: block;
+                    margin-bottom: 2px;
+                }
+
+                /* Image content area */
+                #printPreviewModal .page-content {
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    overflow: hidden;
+                    background: #000;
+                    border-radius: 4px;
+                }
+                
+                #printPreviewModal .page-image {
+                    max-width: 100%;
+                    max-height: 100%;
+                    width: auto;
+                    height: auto;
+                    object-fit: contain;
+                }
+
+                #printPreviewModal .viewport-grid {
+                    display: grid;
+                    gap: 2px;
+                    width: 100%;
+                    height: 100%;
+                    background: #000;
+                }
+                
+                #printPreviewModal .viewport-cell {
+                    background: #000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    overflow: hidden;
+                }
+                
+                #printPreviewModal .viewport-cell img {
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                }
+                
+                /* Page footer */
+                #printPreviewModal .page-footer {
+                    border-top: 1px solid #e2e8f0;
+                    padding-top: 8px;
+                    margin-top: 12px;
+                    display: flex;
+                    justify-content: space-between;
+                    font-size: 10px;
+                    color: #94a3b8;
+                    flex-shrink: 0;
+                }
+                
+                /* Page number badge */
+                #printPreviewModal .page-number-badge {
+                    position: absolute;
+                    top: 0;
+                    right: 0;
+                    background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+                    color: #fff;
+                    padding: 6px 16px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    border-radius: 0 0 0 8px;
+                }
+
+                /* Toolbar button styles */
+                #printPreviewModal .btn-outline-light:disabled {
+                    opacity: 0.3;
+                }
+
+                /* Zoom animation */
+                #printPreviewModal .preview-scroll-container.zooming .print-page {
+                    transition: transform 0.15s ease;
+                }
+
+                /* Responsive adjustments */
+                @media (max-height: 700px) {
+                    #printPreviewModal .print-page {
+                        ${isLandscape ? 'width: min(95vw, 900px);' : 'width: min(80vw, 550px);'}
+                    }
+                }
+            </style>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        const modal = new bootstrap.Modal(document.getElementById('printPreviewModal'));
+        modal.show();
+
+        // Store reference for cleanup
+        this.currentPreviewModal = modal;
+        this.pendingPrintContent = previewContent;
+        this.pendingPrintSettings = mergedSettings;
+
+        // Setup zoom functionality
+        let currentZoom = 100;
+        const zoomLevelEl = document.getElementById('zoomLevel');
+        const scrollContainer = document.getElementById('previewScrollContainer');
+        const pages = scrollContainer.querySelectorAll('.print-page');
+
+        const updateZoom = (newZoom) => {
+            currentZoom = Math.min(Math.max(newZoom, 50), 150);
+            zoomLevelEl.textContent = `${currentZoom}%`;
+            pages.forEach(page => {
+                page.style.transform = `scale(${currentZoom / 100})`;
+                page.style.transformOrigin = 'center top';
+            });
+        };
+
+        document.getElementById('zoomInBtn').addEventListener('click', () => updateZoom(currentZoom + 10));
+        document.getElementById('zoomOutBtn').addEventListener('click', () => updateZoom(currentZoom - 10));
+        document.getElementById('zoomResetBtn').addEventListener('click', () => updateZoom(100));
+
+        // Setup page navigation
+        let currentPage = 1;
+        const currentPageNumEl = document.getElementById('currentPageNum');
+        const prevBtn = document.getElementById('prevPageBtn');
+        const nextBtn = document.getElementById('nextPageBtn');
+
+        const scrollToPage = (pageNum) => {
+            const targetPage = pages[pageNum - 1];
+            if (targetPage) {
+                targetPage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                currentPage = pageNum;
+                currentPageNumEl.textContent = pageNum;
+                prevBtn.disabled = pageNum <= 1;
+                nextBtn.disabled = pageNum >= totalPages;
+            }
+        };
+
+        prevBtn.addEventListener('click', () => scrollToPage(currentPage - 1));
+        nextBtn.addEventListener('click', () => scrollToPage(currentPage + 1));
+
+        // Track scroll position to update current page indicator
+        scrollContainer.addEventListener('scroll', () => {
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const containerCenter = containerRect.top + containerRect.height / 2;
+
+            let closestPage = 1;
+            let closestDistance = Infinity;
+
+            pages.forEach((page, index) => {
+                const pageRect = page.getBoundingClientRect();
+                const pageCenter = pageRect.top + pageRect.height / 2;
+                const distance = Math.abs(pageCenter - containerCenter);
+
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestPage = index + 1;
+                }
+            });
+
+            if (closestPage !== currentPage) {
+                currentPage = closestPage;
+                currentPageNumEl.textContent = closestPage;
+                prevBtn.disabled = closestPage <= 1;
+                nextBtn.disabled = closestPage >= totalPages;
+            }
+        });
+
+        // Setup print button handler
+        document.getElementById('previewPrintBtn').addEventListener('click', async () => {
+            // Execute optional callback
+            if (onPrint && typeof onPrint === 'function') {
+                await onPrint();
+            }
+
+            // Generate full HTML document for printing
+            const fullPrintHTML = this.generatePrintableHTML(previewContent, mergedSettings);
+
+            // Hide preview modal
+            modal.hide();
+
+            // Show printer selection dialog
+            await this.directPrintWithDialog(fullPrintHTML, mergedSettings);
+        });
+
+        // Cleanup on modal hidden
+        document.getElementById('printPreviewModal').addEventListener('hidden.bs.modal', () => {
+            document.getElementById('printPreviewModal')?.remove();
+            this.currentPreviewModal = null;
+            this.pendingPrintContent = null;
+            this.pendingPrintSettings = null;
+        });
+    }
+
+    /**
+     * Generate full printable HTML document from preview content
+     * @param {string} previewContent - The preview pages HTML
+     * @param {Object} settings - Print settings
+     * @returns {string} Full HTML document
+     */
+    generatePrintableHTML(previewContent, settings) {
+        const marginValues = { none: 0, narrow: 5, normal: 10, wide: 20 };
+        const margin = marginValues[settings.margins] || 10;
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DICOM Print</title>
+    <style>
+        @page {
+            size: ${settings.paperSize} ${settings.orientation};
+            margin: ${margin}mm;
+        }
+        
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            .print-page { page-break-after: always; margin-bottom: 0 !important; box-shadow: none !important; }
+            .print-page:last-child { page-break-after: avoid; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #000; }
+        
+        .print-page {
+            background: #fff;
+            color: #000;
+            max-width: ${settings.orientation === 'landscape' ? '297mm' : '210mm'};
+            min-height: ${settings.orientation === 'landscape' ? '200mm' : '280mm'};
+            margin: 0 auto;
+            padding: 15px;
+        }
+        
+        .page-header {
+            border-bottom: 3px solid #0d6efd;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        
+        .hospital-info h2 { color: #0d6efd; font-size: 18px; margin-bottom: 3px; }
+        .hospital-info p { font-size: 11px; color: #666; margin: 0; }
+        .patient-info { text-align: right; font-size: 11px; }
+        .patient-info strong { font-size: 13px; color: #333; }
+        
+        .page-image {
+            width: 100%;
+            max-height: ${settings.orientation === 'landscape' ? '160mm' : '220mm'};
+            object-fit: contain;
+        }
+        
+        .viewport-grid {
+            display: grid;
+            gap: 2px;
+            height: ${settings.orientation === 'landscape' ? '155mm' : '230mm'};
+            background: transparent;
+        }
+        
+        .viewport-cell {
+            position: relative;
+            background: #000;
+            border: ${settings.borderEnabled ? `${settings.borderWidth || 2}px ${settings.borderStyle || 'solid'} ${settings.borderColor || '#000000'}` : 'none'};
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .viewport-cell img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        
+        .page-footer {
+            border-top: 1px solid #ddd;
+            padding-top: 8px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    ${previewContent}
+</body>
+</html>`;
+    }
+
 
     /**
      * Track a print job for billing and analytics
@@ -883,8 +1577,10 @@ window.DICOM_VIEWER.PrintManager = class {
             updateBorderPreview();
         });
 
-        // Preview button
+        // Preview button - hide print settings modal first, then show preview
         document.getElementById('printPreviewBtnV3')?.addEventListener('click', () => {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('printDialogV3'));
+            if (modal) modal.hide();
             this.executePrint(true);
         });
 
@@ -1006,10 +1702,10 @@ window.DICOM_VIEWER.PrintManager = class {
 
             this.updateLoadingProgress('Complete!', 100);
 
-            // Auto-print if not preview
+            // Auto-print if not preview - use custom dialog for Electron
             if (!previewOnly) {
                 setTimeout(() => {
-                    printWindow.print();
+                    this.executePrintWithCustomDialog(printWindow, this.getEffectivePrintSettings());
                 }, 500);
             }
 
@@ -1162,36 +1858,50 @@ window.DICOM_VIEWER.PrintManager = class {
                 } catch (e) { }
             }
 
-            this.updateLoadingProgress('Opening print preview...', 80);
+            this.updateLoadingProgress('Preparing print preview...', 80);
 
-            // Generate simple single-image print HTML
-            const printHTML = this.generateLayoutPrintHTML(imageDataUrl, patientInfo, loadedCount, previewOnly);
+            // Get settings
+            const settings = this.getEffectivePrintSettings();
 
-            const printWindow = window.open('', '_blank', 'width=1200,height=900');
-            if (!printWindow) {
-                throw new Error('Please allow popups to print');
+            // Detect layout type from viewport container
+            const containerClasses = viewportContainer.className;
+            let layoutType = '1x1';
+            const layoutMatch = containerClasses.match(/layout-spots-(\d+)/);
+            if (layoutMatch) {
+                const spots = parseInt(layoutMatch[1]);
+                const layoutMap = { 1: '1x1', 2: '1x2', 4: '2x2', 6: '2x3', 8: '2x4', 9: '3x3', 12: '3x4', 15: '3x5', 16: '4x4' };
+                layoutType = layoutMap[spots] || `${spots}`;
             }
 
-            printWindow.document.write(printHTML);
-            printWindow.document.close();
+            // Generate page content for preview
+            const pageContent = this.generateLayoutPageContent(imageDataUrl, patientInfo, loadedCount);
 
             this.updateLoadingProgress('Complete!', 100);
+            this.hideLoadingModal();
 
-            // Track print for billing (only if not preview)
-            if (!previewOnly) {
-                const settings = this.getEffectivePrintSettings();
-
-                // Detect layout type from viewport container
-                const containerClasses = viewportContainer.className;
-                let layoutType = '1x1';
-                const layoutMatch = containerClasses.match(/layout-spots-(\d+)/);
-                if (layoutMatch) {
-                    const spots = parseInt(layoutMatch[1]);
-                    const layoutMap = { 1: '1x1', 2: '1x2', 4: '2x2', 6: '2x3', 8: '2x4', 9: '3x3', 12: '3x4', 15: '3x5', 16: '4x4' };
-                    layoutType = layoutMap[spots] || `${spots}`;
-                }
-
-                // Track the print
+            if (previewOnly) {
+                // Show in-window preview modal (no popup)
+                this.showPreviewModal(pageContent, {
+                    title: `Print Preview - Current Layout (${loadedCount} viewports)`,
+                    totalPages: 1,
+                    printSettings: settings,
+                    onPrint: async () => {
+                        // Track print when user clicks Print
+                        await this.trackPrint({
+                            paperSize: settings.paperSize,
+                            orientation: settings.orientation,
+                            colorMode: settings.colorMode,
+                            quality: settings.quality,
+                            layoutType: layoutType,
+                            totalPages: 1,
+                            includePatientInfo: settings.includePatientInfo,
+                            includeAnnotations: settings.includeAnnotations,
+                            includeMeasurements: settings.includeMeasurements
+                        });
+                    }
+                });
+            } else {
+                // Direct print - track and show printer dialog
                 await this.trackPrint({
                     paperSize: settings.paperSize,
                     orientation: settings.orientation,
@@ -1204,13 +1914,9 @@ window.DICOM_VIEWER.PrintManager = class {
                     includeMeasurements: settings.includeMeasurements
                 });
 
-                setTimeout(() => {
-                    printWindow.print();
-                    // Update status to completed after a delay
-                    setTimeout(() => {
-                        this.updatePrintStatus('completed');
-                    }, 2000);
-                }, 500);
+                // Generate full printable HTML and show printer dialog
+                const fullPrintHTML = this.generatePrintableHTML(pageContent, settings);
+                await this.directPrintWithDialog(fullPrintHTML, settings);
             }
 
         } catch (error) {
@@ -1221,6 +1927,50 @@ window.DICOM_VIEWER.PrintManager = class {
         } finally {
             this.hideLoadingModal();
         }
+    }
+
+    /**
+     * Generate just the page content for layout print preview (no full document wrapper)
+     */
+    generateLayoutPageContent(imageDataUrl, patientInfo, viewportCount) {
+        const settings = this.getEffectivePrintSettings();
+
+        return `
+            <div class="print-page">
+                <span class="page-number-badge">Page 1 of 1</span>
+                <div class="page-inner">
+                    ${settings.includeInstitutionInfo ? `
+                    <div class="page-header">
+                        <div class="header-content">
+                            <div class="hospital-info">
+                                <h2>${patientInfo.institution}</h2>
+                                <p>Medical Imaging Department</p>
+                            </div>
+                            ${settings.includePatientInfo ? `
+                            <div class="patient-info">
+                                <strong>${patientInfo.name}</strong>
+                                ${patientInfo.id ? `ID: ${patientInfo.id}<br>` : ''}
+                                ${patientInfo.age ? `Age: ${patientInfo.age}${patientInfo.sex ? ` | Sex: ${patientInfo.sex}` : ''}<br>` : ''}
+                                ${patientInfo.studyDescription ? `Study: ${patientInfo.studyDescription}<br>` : ''}
+                                Date: ${patientInfo.studyDate}
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="page-content">
+                        <img src="${imageDataUrl}" class="page-image" alt="Current Layout">
+                    </div>
+                    
+                    <div class="page-footer">
+                        <span>${settings.includeTimestamp ? `Generated: ${new Date().toLocaleString()}` : ''}</span>
+                        <span>DICOM Viewer - Accurate Diagnostics</span>
+                        <span>For Medical Use Only</span>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     /**
@@ -1349,10 +2099,33 @@ window.DICOM_VIEWER.PrintManager = class {
     <div class="print-toolbar no-print">
         <h4>📄 Print Preview - Current Layout (${viewportCount} viewports)</h4>
         <div>
-            <button class="btn-print" onclick="window.print()">🖨️ Print Now</button>
+            <button class="btn-print" id="printNowBtn">🖨️ Print Now</button>
             <button class="btn-close" onclick="window.close()">✕ Close</button>
         </div>
     </div>
+    <script>
+        // Custom print handler for Electron
+        document.getElementById('printNowBtn').addEventListener('click', async function() {
+            const printManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
+            
+            if (!printManager) {
+                alert('Printing is only available through the main application window');
+                return;
+            }
+            
+            const printContent = document.documentElement.outerHTML;
+            const printSettings = { orientation: 'landscape' };
+            
+            console.log('[DEBUG Preview] Calling parent directPrintWithDialog...');
+            try {
+                await printManager.directPrintWithDialog(printContent, printSettings);
+                console.log('[DEBUG Preview] directPrintWithDialog returned');
+            } catch (error) {
+                console.error('[DEBUG Preview] directPrintWithDialog failed:', error);
+                alert('Print failed: ' + error.message);
+            }
+        });
+    </script>
     ` : ''}
 
     <div class="print-page">
@@ -1651,32 +2424,44 @@ window.DICOM_VIEWER.PrintManager = class {
 
             this.updateLoadingProgress('Generating print document...', 90);
 
-            // Generate multi-page HTML from screenshots
-            const printHTML = this.generateAllImagesScreenshotHTML(pageScreenshots, patientInfo, viewportCount, previewOnly);
-
-            const printWindow = window.open('', '_blank', 'width=1200,height=900');
-            if (!printWindow) {
-                throw new Error('Please allow popups to print');
-            }
-
-            printWindow.document.write(printHTML);
-            printWindow.document.close();
+            // Generate page content for preview/print
+            const pagesContent = this.generatePreviewPagesContent(pageScreenshots, patientInfo, viewportCount);
+            const settings = this.getEffectivePrintSettings();
 
             this.updateLoadingProgress('Complete!', 100);
+            this.hideLoadingModal();
 
-            // Track print for billing (only if not preview)
-            if (!previewOnly) {
+            if (previewOnly) {
+                // Show in-window preview modal (no popup)
+                this.showPreviewModal(pagesContent, {
+                    title: `Print Preview - ${images.length} Images on ${totalPages} Pages`,
+                    totalPages: totalPages,
+                    printSettings: settings,
+                    onPrint: async () => {
+                        // Track print when user clicks Print
+                        await this.trackPrint({
+                            paperSize: settings.paperSize,
+                            orientation: settings.orientation,
+                            colorMode: settings.colorMode,
+                            quality: settings.quality,
+                            layoutType: `${viewportCount}`,
+                            totalPages: totalPages,
+                            pagesPerCopy: totalPages,
+                            includePatientInfo: settings.includePatientInfo,
+                            includeAnnotations: settings.includeAnnotations,
+                            includeMeasurements: settings.includeMeasurements
+                        });
+                    }
+                });
+            } else {
+                // Direct print - track and show printer dialog
                 console.log('[DEBUG] printAllImages: Starting print tracking (previewOnly=false)');
-                const settings = this.getEffectivePrintSettings();
-
-                // Track the print BEFORE triggering print dialog
-                console.log('[DEBUG] printAllImages: About to call trackPrint with settings:', settings);
                 await this.trackPrint({
                     paperSize: settings.paperSize,
                     orientation: settings.orientation,
                     colorMode: settings.colorMode,
                     quality: settings.quality,
-                    layoutType: `${viewportCount} `,
+                    layoutType: `${viewportCount}`,
                     totalPages: totalPages,
                     pagesPerCopy: totalPages,
                     includePatientInfo: settings.includePatientInfo,
@@ -1685,15 +2470,12 @@ window.DICOM_VIEWER.PrintManager = class {
                 });
                 console.log('[DEBUG] printAllImages: trackPrint completed');
 
-                setTimeout(() => {
-                    printWindow.print();
-                    // Update status to completed after a delay
-                    setTimeout(() => {
-                        this.updatePrintStatus('completed');
-                        // After image print, prompt for PCPNDT Form F
-                        this.showPcpndtPrompt();
-                    }, 2000);
-                }, 500);
+                // Generate full printable HTML and show printer dialog
+                const fullPrintHTML = this.generatePrintableHTML(pagesContent, settings);
+                await this.directPrintWithDialog(fullPrintHTML, settings);
+
+                // After image print, prompt for PCPNDT Form F
+                this.showPcpndtPrompt();
             }
 
         } catch (error) {
@@ -1702,6 +2484,76 @@ window.DICOM_VIEWER.PrintManager = class {
         } finally {
             this.hideLoadingModal();
         }
+    }
+
+    /**
+     * Generate just the page content HTML for preview (no full document wrapper)
+     * Uses page-inner structure for proper aspect ratio display
+     */
+    generatePreviewPagesContent(pageScreenshots, patientInfo, viewportCount) {
+        const totalPages = pageScreenshots.length;
+
+        return pageScreenshots.map((page, idx) => {
+            if (page.error || !page.dataUrl) {
+                return `
+                    <div class="print-page" data-page="${page.pageNum}">
+                        <div class="page-inner">
+                            <div class="page-header">
+                                <div class="header-content">
+                                    <div class="hospital-info">
+                                        <h2>${patientInfo.institution}</h2>
+                                        <p>Medical Imaging Department</p>
+                                    </div>
+                                    <div class="patient-info">
+                                        <strong>${patientInfo.name}</strong>
+                                        ${patientInfo.id ? `ID: ${patientInfo.id}<br>` : ''}
+                                        Study: ${patientInfo.studyDate}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="page-content" style="background: #f8f9fa;">
+                                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; color: #dc3545; padding: 40px;">
+                                    <i class="bi bi-exclamation-triangle" style="font-size: 48px;"></i>
+                                    <p style="margin-top: 10px;">Error capturing page ${page.pageNum}</p>
+                                </div>
+                            </div>
+                            <div class="page-footer">
+                                <div>Page ${page.pageNum} of ${totalPages}</div>
+                                <div>Printed: ${new Date().toLocaleString()}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="print-page" data-page="${page.pageNum}">
+                    <span class="page-number-badge">Page ${page.pageNum} of ${totalPages}</span>
+                    <div class="page-inner">
+                        <div class="page-header">
+                            <div class="header-content">
+                                <div class="hospital-info">
+                                    <h2>${patientInfo.institution}</h2>
+                                    <p>Medical Imaging Department</p>
+                                </div>
+                                <div class="patient-info">
+                                    <strong>${patientInfo.name}</strong>
+                                    ${patientInfo.id ? `ID: ${patientInfo.id}<br>` : ''}
+                                    Study: ${patientInfo.studyDate}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="page-content">
+                            <img src="${page.dataUrl}" class="page-image" alt="Page ${page.pageNum}">
+                        </div>
+                        <div class="page-footer">
+                            <div>Page ${page.pageNum} of ${totalPages}</div>
+                            <div>Printed: ${new Date().toLocaleString()}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
 
     /**
@@ -1932,51 +2784,79 @@ window.DICOM_VIEWER.PrintManager = class {
         // Track print through parent window before printing
         async function trackAndPrint() {
             console.log('[DEBUG Preview] trackAndPrint called');
+            
+            // Get parent window's PrintManager
+            const printManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
+            
+            if (!printManager) {
+                console.error('[DEBUG Preview] Parent PrintManager not available');
+                alert('Printing is only available through the main application window');
+                return;
+            }
+            
             try {
-                // Try to track via parent window's PrintManager INSTANCE (not the class)
-                if (window.opener && window.opener.DICOM_VIEWER && window.opener.DICOM_VIEWER.MANAGERS && window.opener.DICOM_VIEWER.MANAGERS.printManager) {
-                    const printManager = window.opener.DICOM_VIEWER.MANAGERS.printManager;
-                    console.log('[DEBUG Preview] Found parent PrintManager instance, calling trackPrint...');
-                    await printManager.trackPrint({
-                        paperSize: '${settings.paperSize}',
-                        orientation: '${settings.orientation}',
-                        colorMode: '${settings.colorMode || 'grayscale'}',
-                        quality: '${settings.quality || 'high'}',
-                        layoutType: '${viewportCount}',
-                        totalPages: ${totalPages},
-                        pagesPerCopy: ${totalPages},
-                        includePatientInfo: ${settings.includePatientInfo ? 1 : 0},
-                        includeAnnotations: ${settings.includeAnnotations ? 1 : 0},
-                        includeMeasurements: ${settings.includeMeasurements ? 1 : 0}
-                    });
-                    console.log('[DEBUG Preview] Print tracked successfully from preview window');
-                } else {
-                    console.warn('[DEBUG Preview] Parent PrintManager instance not available. Checking what exists...');
-                    console.log('[DEBUG Preview] window.opener:', window.opener);
-                    console.log('[DEBUG Preview] window.opener.DICOM_VIEWER:', window.opener?.DICOM_VIEWER);
-                    console.log('[DEBUG Preview] window.opener.DICOM_VIEWER.MANAGERS:', window.opener?.DICOM_VIEWER?.MANAGERS);
-                }
+                // Track the print
+                console.log('[DEBUG Preview] Found parent PrintManager instance, calling trackPrint...');
+                await printManager.trackPrint({
+                    paperSize: '${settings.paperSize}',
+                    orientation: '${settings.orientation}',
+                    colorMode: '${settings.colorMode || 'grayscale'}',
+                    quality: '${settings.quality || 'high'}',
+                    layoutType: '${viewportCount}',
+                    totalPages: ${totalPages},
+                    pagesPerCopy: ${totalPages},
+                    includePatientInfo: ${settings.includePatientInfo ? 1 : 0},
+                    includeAnnotations: ${settings.includeAnnotations ? 1 : 0},
+                    includeMeasurements: ${settings.includeMeasurements ? 1 : 0}
+                });
+                console.log('[DEBUG Preview] Print tracked successfully from preview window');
             } catch (error) {
                 console.error('[DEBUG Preview] Failed to track print:', error);
             }
-            // Print regardless of tracking success
-            window.print();
-            
-            // After print, trigger PCPNDT prompt in parent window
-            setTimeout(() => {
-                try {
-                    console.log('[DEBUG Preview] Triggering PCPNDT prompt in parent window...');
-                    if (window.opener && window.opener.DICOM_VIEWER && window.opener.DICOM_VIEWER.MANAGERS && window.opener.DICOM_VIEWER.MANAGERS.printManager) {
-                        window.opener.DICOM_VIEWER.MANAGERS.printManager.showPcpndtPrompt();
-                        console.log('[DEBUG Preview] PCPNDT prompt triggered');
-                    } else {
-                        console.warn('[DEBUG Preview] Cannot trigger PCPNDT prompt - parent PrintManager not available');
-                    }
-                } catch (e) {
-                    console.error('[DEBUG Preview] Error triggering PCPNDT prompt:', e);
-                }
-            }, 1000);
+
+            // Get the HTML content for printing (remove no-print elements)
+            const printContent = document.documentElement.outerHTML;
+            const printSettings = {
+                paperSize: '${settings.paperSize}',
+                orientation: '${settings.orientation}',
+                colorMode: '${settings.colorMode || 'grayscale'}'
+            };
+
+            // Directly call parent's directPrintWithDialog method
+            // This shows the printer selection modal in the parent window
+            console.log('[DEBUG Preview] Calling parent directPrintWithDialog...');
+            try {
+                await printManager.directPrintWithDialog(printContent, printSettings);
+                console.log('[DEBUG Preview] directPrintWithDialog returned');
+                // Trigger PCPNDT prompt after print dialog closes
+                triggerPcpndtPrompt();
+            } catch (error) {
+                console.error('[DEBUG Preview] directPrintWithDialog failed:', error);
+                alert('Print failed: ' + error.message);
+            }
         }
+
+        function triggerPcpndtPrompt() {
+            try {
+                console.log('[DEBUG Preview] Triggering PCPNDT prompt in parent window...');
+                if (window.opener && window.opener.DICOM_VIEWER && window.opener.DICOM_VIEWER.MANAGERS && window.opener.DICOM_VIEWER.MANAGERS.printManager) {
+                    window.opener.DICOM_VIEWER.MANAGERS.printManager.showPcpndtPrompt();
+                    console.log('[DEBUG Preview] PCPNDT prompt triggered');
+                } else {
+                    console.warn('[DEBUG Preview] Cannot trigger PCPNDT prompt - parent PrintManager not available');
+                }
+            } catch (e) {
+                console.error('[DEBUG Preview] Error triggering PCPNDT prompt:', e);
+            }
+        }
+
+        // Block Ctrl+P and use custom print dialog
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+                e.preventDefault();
+                trackAndPrint();
+            }
+        });
     </script>
     ` : ''}
 
@@ -2230,13 +3110,38 @@ window.DICOM_VIEWER.PrintManager = class {
     <div class="print-toolbar no-print">
         <h4>📄 Print Preview - ${capturedImages.length} Images on ${totalPages} Pages (${layout} Grid)</h4>
         <div>
-            <button class="btn-print" onclick="window.print()">🖨️ Print All Pages</button>
+            <button class="btn-print" id="printAllPagesBtn">🖨️ Print All Pages</button>
             <button class="btn-close" onclick="window.close()">✕ Close</button>
         </div>
     </div>
     <div class="page-nav no-print">
         ${pages.map((_, i) => `<div class="page-nav-item" title="Page ${i + 1}" onclick="document.querySelector('[data-page=\\'${i + 1}\\']').scrollIntoView({behavior:'smooth'})">${i + 1}</div>`).join('')}
     </div>
+    <script>
+        document.getElementById('printAllPagesBtn').addEventListener('click', async function() {
+            const printManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
+            
+            if (!printManager) {
+                alert('Printing is only available through the main application window');
+                return;
+            }
+            
+            const printContent = document.documentElement.outerHTML;
+            const printSettings = { 
+                orientation: '${settings.orientation}', 
+                paperSize: '${settings.paperSize}' 
+            };
+            
+            console.log('[DEBUG Preview] Calling parent directPrintWithDialog...');
+            try {
+                await printManager.directPrintWithDialog(printContent, printSettings);
+                console.log('[DEBUG Preview] directPrintWithDialog returned');
+            } catch (error) {
+                console.error('[DEBUG Preview] directPrintWithDialog failed:', error);
+                alert('Print failed: ' + error.message);
+            }
+        });
+    </script>
     ` : ''}
 
                                     <div class="print-content">
@@ -2431,10 +3336,35 @@ window.DICOM_VIEWER.PrintManager = class {
     <div class="print-toolbar no-print">
         <h4>Print Preview - ${viewportState.viewports.length} viewports (${viewportState.layout} layout)</h4>
         <div>
-            <button class="btn-print" onclick="window.print()">Print Now</button>
+            <button class="btn-print" id="viewportPrintBtn">Print Now</button>
             <button class="btn-close" onclick="window.close()">Close</button>
         </div>
     </div>
+    <script>
+        document.getElementById('viewportPrintBtn').addEventListener('click', async function() {
+            const printManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
+            
+            if (!printManager) {
+                alert('Printing is only available through the main application window');
+                return;
+            }
+            
+            const printContent = document.documentElement.outerHTML;
+            const printSettings = { 
+                orientation: '${settings.orientation}', 
+                paperSize: '${settings.paperSize}' 
+            };
+            
+            console.log('[DEBUG Preview] Calling parent directPrintWithDialog...');
+            try {
+                await printManager.directPrintWithDialog(printContent, printSettings);
+                console.log('[DEBUG Preview] directPrintWithDialog returned');
+            } catch (error) {
+                console.error('[DEBUG Preview] directPrintWithDialog failed:', error);
+                alert('Print failed: ' + error.message);
+            }
+        });
+    </script>
     ` : ''}
 
                                     <div class="print-content">
@@ -2494,7 +3424,7 @@ window.DICOM_VIEWER.PrintManager = class {
 
         try {
             const basePath = document.querySelector('meta[name="base-path"]')?.content || '';
-            const response = await fetch(`${basePath} /api/reports / by - id.php ? id = ${reportId} `);
+            const response = await fetch(`${basePath}/api/reports/by-id.php?id=${reportId}`);
             const data = await response.json();
 
             if (!data.success || !data.data) {
@@ -2529,7 +3459,14 @@ window.DICOM_VIEWER.PrintManager = class {
                 });
                 console.log('[DEBUG REPORT] Report print tracked!');
 
-                setTimeout(() => printWindow.print(), 500);
+                // Use custom print dialog for Electron
+                setTimeout(() => {
+                    this.executePrintWithCustomDialog(printWindow, {
+                        paperSize: 'A4',
+                        orientation: 'portrait',
+                        colorMode: 'grayscale'
+                    });
+                }, 500);
             }
 
         } catch (error) {
@@ -2542,7 +3479,7 @@ window.DICOM_VIEWER.PrintManager = class {
         const settings = this.printSettings;
 
         return `
-                        < !DOCTYPE html >
+            <!DOCTYPE html>
                             <html>
                                 <head>
                                     <meta charset="UTF-8">
@@ -2734,33 +3671,61 @@ window.DICOM_VIEWER.PrintManager = class {
     <script>
         async function trackAndPrint() {
             console.log('[DEBUG REPORT PREVIEW] trackAndPrint called');
+            
+            // Access parent window's PrintManager
+            const printManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
+            
+            if (!printManager) {
+                console.error('[DEBUG REPORT PREVIEW] PrintManager not available in parent window');
+                alert('Printing is only available through the main application window');
+                return;
+            }
+            
             try {
-                // Access parent window's PrintManager to track the print
-                const parentPrintManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
-                console.log('[DEBUG REPORT PREVIEW] parentPrintManager:', parentPrintManager);
-                
-                if (parentPrintManager) {
-                    await parentPrintManager.trackPrint({
-                        printType: 'report',
-                        paperSize: 'A4',
-                        orientation: 'portrait',
-                        colorMode: 'grayscale',
-                        quality: 'high',
-                        layoutType: 'report',
-                        totalPages: 1,
-                        includePatientInfo: true,
-                        includeAnnotations: false,
-                        includeMeasurements: true
-                    });
-                    console.log('[DEBUG REPORT PREVIEW] Report tracked successfully');
-                } else {
-                    console.warn('[DEBUG REPORT PREVIEW] PrintManager not available in parent window');
-                }
+                // Track the print
+                await printManager.trackPrint({
+                    printType: 'report',
+                    paperSize: 'A4',
+                    orientation: 'portrait',
+                    colorMode: 'grayscale',
+                    quality: 'high',
+                    layoutType: 'report',
+                    totalPages: 1,
+                    includePatientInfo: true,
+                    includeAnnotations: false,
+                    includeMeasurements: true
+                });
+                console.log('[DEBUG REPORT PREVIEW] Report tracked successfully');
             } catch (error) {
                 console.error('[DEBUG REPORT PREVIEW] Error tracking report print:', error);
             }
-            window.print();
+
+            // Get the HTML content for printing
+            const printContent = document.documentElement.outerHTML;
+            const printSettings = { 
+                orientation: 'portrait', 
+                paperSize: 'A4', 
+                colorMode: 'grayscale' 
+            };
+
+            // Directly call parent's directPrintWithDialog method
+            console.log('[DEBUG REPORT PREVIEW] Calling parent directPrintWithDialog...');
+            try {
+                await printManager.directPrintWithDialog(printContent, printSettings);
+                console.log('[DEBUG REPORT PREVIEW] directPrintWithDialog returned');
+            } catch (error) {
+                console.error('[DEBUG REPORT PREVIEW] directPrintWithDialog failed:', error);
+                alert('Print failed: ' + error.message);
+            }
         }
+
+        // Block Ctrl+P and use custom print dialog
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+                e.preventDefault();
+                trackAndPrint();
+            }
+        });
     </script>
     ` : ''}
 
@@ -3019,8 +3984,13 @@ window.DICOM_VIEWER.PrintManager = class {
                 });
                 console.log('[DEBUG PCPNDT] PCPNDT print tracked!');
 
+                // Use custom print dialog for Electron
                 setTimeout(() => {
-                    printWindow.print();
+                    this.executePrintWithCustomDialog(printWindow, {
+                        paperSize: pcpndtSettings.paperSize,
+                        orientation: 'portrait',
+                        colorMode: pcpndtSettings.colorMode
+                    });
                 }, 500);
             }
         } catch (error) {
@@ -3165,10 +4135,36 @@ window.DICOM_VIEWER.PrintManager = class {
     <div class="print-toolbar no-print">
         <h4>📋 PCPNDT Form F - Preview</h4>
         <div>
-            <button class="btn-print" onclick="window.print()">🖨️ Print Now</button>
+            <button class="btn-print" id="pcpndtPrintBtn">🖨️ Print Now</button>
             <button class="btn-close" onclick="window.close()">✕ Close</button>
         </div>
     </div>
+    <script>
+        document.getElementById('pcpndtPrintBtn').addEventListener('click', async function() {
+            const printManager = window.opener?.DICOM_VIEWER?.MANAGERS?.printManager;
+            
+            if (!printManager) {
+                alert('Printing is only available through the main application window');
+                return;
+            }
+            
+            const printContent = document.documentElement.outerHTML;
+            const printSettings = { 
+                orientation: 'portrait', 
+                paperSize: '${settings.paperSize}', 
+                colorMode: '${settings.colorMode}' 
+            };
+            
+            console.log('[DEBUG Preview] Calling parent directPrintWithDialog...');
+            try {
+                await printManager.directPrintWithDialog(printContent, printSettings);
+                console.log('[DEBUG Preview] directPrintWithDialog returned');
+            } catch (error) {
+                console.error('[DEBUG Preview] directPrintWithDialog failed:', error);
+                alert('Print failed: ' + error.message);
+            }
+        });
+    </script>
     ` : ''}
 
                                     <div class="form-container">

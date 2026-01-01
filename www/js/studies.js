@@ -717,7 +717,43 @@ function updateOpenReportsCount() {
 }
 
 function printReport() {
-    window.print();
+    // Check if custom print dialog is available (Electron)
+    const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+    const customPrintDialog = window.DICOM_VIEWER?.customPrintDialog;
+
+    if (isElectron && customPrintDialog && customPrintDialog.isAvailable()) {
+        // Use custom print dialog in Electron
+        customPrintDialog.show({
+            printSettings: {},
+            onPrint: async (result) => {
+                try {
+                    // Get current page HTML
+                    const htmlContent = document.documentElement.outerHTML;
+
+                    const printResult = await customPrintDialog.printContent(
+                        htmlContent,
+                        result.printerName,
+                        result.settings
+                    );
+
+                    if (!printResult.success) {
+                        console.error('Print failed:', printResult.error);
+                    }
+                } catch (error) {
+                    console.error('Print error:', error);
+                }
+            },
+            onCancel: () => {
+                console.log('Print cancelled');
+            }
+        });
+    } else if (isElectron) {
+        // Electron but no custom print dialog - block
+        alert('Print system not ready. Please ensure printers are configured in Settings.');
+    } else {
+        // Web browser - use default print dialog
+        window.print();
+    }
 }
 
 // ========== REFERRED BY FUNCTIONS ==========

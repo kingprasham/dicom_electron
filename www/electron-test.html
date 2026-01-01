@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Electron Detection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            background: #1a1a2e;
+            color: #fff;
+        }
+        .status {
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            font-size: 18px;
+        }
+        .electron-yes {
+            background: #28a745;
+            border: 3px solid #20c997;
+        }
+        .electron-no {
+            background: #dc3545;
+            border: 3px solid #fd7e14;
+        }
+        .info {
+            background: #343a40;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Electron Environment Detection</h1>
+
+    <div id="status" class="status"></div>
+
+    <div class="info">
+        <h3>Details:</h3>
+        <div id="details"></div>
+    </div>
+
+    <div class="info">
+        <h3>Instructions:</h3>
+        <div id="instructions"></div>
+    </div>
+
+    <script>
+        const status = document.getElementById('status');
+        const details = document.getElementById('details');
+        const instructions = document.getElementById('instructions');
+
+        const isElectronAPI = !!(window.electronAPI);
+        const userAgent = navigator.userAgent;
+        const isElectronUA = userAgent.includes('Electron');
+
+        if (isElectronAPI) {
+            status.className = 'status electron-yes';
+            status.innerHTML = '✅ <strong>SUCCESS!</strong> Running in Electron with APIs enabled';
+
+            details.innerHTML = `
+                <p>✓ window.electronAPI: <strong>Available</strong></p>
+                <p>✓ electronAPI.isElectron: <strong>${window.electronAPI.isElectron}</strong></p>
+                <p>✓ electronAPI.platform: <strong>${window.electronAPI.platform}</strong></p>
+                <p>✓ Electron version: <strong>${window.electronAPI.versions?.electron || 'N/A'}</strong></p>
+                <p>✓ User Agent: <code>${userAgent}</code></p>
+            `;
+
+            instructions.innerHTML = `
+                <p style="color: #28a745;">
+                    <strong>Everything is working correctly!</strong><br>
+                    The custom print dialog should work. Go back to your viewer and try printing.
+                </p>
+            `;
+        } else {
+            status.className = 'status electron-no';
+            status.innerHTML = '❌ <strong>PROBLEM DETECTED!</strong> Not running in proper Electron environment';
+
+            details.innerHTML = `
+                <p>✗ window.electronAPI: <strong>NOT Available</strong></p>
+                <p>✗ User Agent: <code>${userAgent}</code></p>
+                <p>✗ Electron in UA: <strong>${isElectronUA ? 'Yes (partial)' : 'No'}</strong></p>
+            `;
+
+            instructions.innerHTML = `
+                <p style="color: #fd7e14;">
+                    <strong>This means you're accessing the page through:</strong>
+                </p>
+                <ol>
+                    <li><strong>XAMPP's Apache server</strong> (not Electron's PHP server), OR</li>
+                    <li><strong>A regular browser</strong> (Chrome/Edge) instead of the Electron app, OR</li>
+                    <li>The <strong>preload script failed to load</strong></li>
+                </ol>
+
+                <p><strong>To fix this:</strong></p>
+                <ol>
+                    <li><strong>Stop XAMPP Apache</strong> (if it's running on port 8080)</li>
+                    <li><strong>Close ALL browser windows</strong> showing localhost:8080</li>
+                    <li><strong>Restart the Electron app:</strong>
+                        <pre style="background: #000; padding: 10px; border-radius: 5px;">
+cd c:\\xampp\\htdocs\\papa\\dicom_again\\claude\\desktop-version\\electron
+npm start</pre>
+                    </li>
+                    <li><strong>Wait for the app window to open automatically</strong> (don't open a browser)</li>
+                </ol>
+
+                <p style="color: #ffc107;">
+                    <strong>⚠️ Important:</strong> The Electron window looks like a browser, but it's not.
+                    It should have a menu bar with "File", "View", "Tools", "Help".
+                </p>
+            `;
+        }
+    </script>
+</body>
+</html>

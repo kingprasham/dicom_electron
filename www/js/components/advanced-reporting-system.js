@@ -3420,8 +3420,61 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
         printWindow.document.write(printHTML);
         printWindow.document.close();
 
-        // Auto print
-        setTimeout(() => printWindow.print(), 500);
+        // Listen for print request from child window
+        const printMessageHandler = async (event) => {
+            if (event.data.type === 'DICOM_PRINT_REQUEST') {
+                const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+                const customPrintDialog = window.DICOM_VIEWER?.customPrintDialog;
+
+                if (isElectron && customPrintDialog && customPrintDialog.isAvailable()) {
+                    // Use custom print dialog
+                    customPrintDialog.show({
+                        printSettings: event.data.printSettings || {},
+                        onPrint: async (result) => {
+                            try {
+                                const printResult = await customPrintDialog.printContent(
+                                    event.data.htmlContent,
+                                    result.printerName,
+                                    result.settings
+                                );
+
+                                if (!printResult.success) {
+                                    console.error('Print failed:', printResult.error);
+                                }
+                            } catch (error) {
+                                console.error('Print error:', error);
+                            }
+                        },
+                        onCancel: () => {
+                            console.log('Print cancelled');
+                        }
+                    });
+                } else if (isElectron) {
+                    // Send blocked message back to child
+                    printWindow.postMessage({ type: 'DICOM_PRINT_BLOCKED' }, '*');
+                } else {
+                    // Web browser - use system print
+                    printWindow.print();
+                }
+            }
+        };
+
+        window.addEventListener('message', printMessageHandler);
+
+        // Auto-trigger print after a short delay
+        setTimeout(() => {
+            if (printWindow && !printWindow.closed) {
+                // Trigger the print via the triggerPrint function in the child window
+                const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+                if (isElectron) {
+                    // In Electron, the child window will send a message back to us
+                    printWindow.postMessage({ type: 'AUTO_PRINT' }, '*');
+                } else {
+                    // In browser, just print directly
+                    printWindow.print();
+                }
+            }
+        }, 500);
     }
 
     generatePrintHTML(formData, hospital) {
@@ -3615,7 +3668,7 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
 </head>
 <body>
     <div class="print-toolbar no-print">
-        <button class="btn-print" onclick="window.print()">Print Report</button>
+        <button class="btn-print" onclick="triggerPrint()">Print Report</button>
         <button class="btn-close" onclick="window.close()">Close</button>
     </div>
 
@@ -3685,6 +3738,39 @@ window.DICOM_VIEWER.AdvancedReportingSystem = class {
             This is a computer-generated report. For medical use only. Confidential patient information.
         </div>
     </div>
+
+    <script>
+        // Print handling for Electron custom print dialog
+        function triggerPrint() {
+            const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+
+            if (isElectron) {
+                // Send message to parent window to trigger custom print dialog
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'DICOM_PRINT_REQUEST',
+                        htmlContent: document.documentElement.outerHTML,
+                        printSettings: {}
+                    }, '*');
+                } else {
+                    alert('Print system not ready. Please reopen this window.');
+                }
+            } else {
+                // Web browser - use default print dialog
+                window.print();
+            }
+        }
+
+        // Listen for messages from parent
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'DICOM_PRINT_BLOCKED') {
+                alert('Print system not ready. Please ensure printers are configured in Settings.');
+            } else if (event.data.type === 'AUTO_PRINT') {
+                // Auto-print triggered by parent
+                triggerPrint();
+            }
+        });
+    </script>
 </body>
 </html>
         `;

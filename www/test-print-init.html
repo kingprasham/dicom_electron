@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="base-path" content="">
+    <title>Print Initialization Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-dark text-light p-4">
+    <div class="container">
+        <h1>Print Initialization Test</h1>
+        <p class="text-muted">This page tests the initialization order and availability of print components</p>
+
+        <div class="card bg-secondary mt-4">
+            <div class="card-header">
+                <h3>Real-Time Status</h3>
+            </div>
+            <div class="card-body">
+                <div id="status">
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button class="btn btn-primary" id="checkBtn">Recheck Status</button>
+        </div>
+    </div>
+
+    <script>
+        function checkStatus() {
+            const status = document.getElementById('status');
+            const results = [];
+
+            // Check window.DICOM_VIEWER
+            results.push(`<strong>window.DICOM_VIEWER:</strong> ${!!window.DICOM_VIEWER ? '✓ Available' : '✗ Not found'}`);
+
+            // Check window.DICOM_VIEWER.CustomPrintDialog
+            results.push(`<strong>CustomPrintDialog class:</strong> ${!!window.DICOM_VIEWER?.CustomPrintDialog ? '✓ Available' : '✗ Not found'}`);
+
+            // Check singleton
+            results.push(`<strong>customPrintDialog instance:</strong> ${!!window.DICOM_VIEWER?.customPrintDialog ? '✓ Available' : '✗ Not found'}`);
+
+            // Check PrintManager class
+            results.push(`<strong>PrintManager class:</strong> ${!!window.DICOM_VIEWER?.PrintManager ? '✓ Available' : '✗ Not found'}`);
+
+            // Check PrintManager instance
+            results.push(`<strong>printManager instance:</strong> ${!!window.DICOM_VIEWER?.MANAGERS?.printManager ? '✓ Available' : '✗ Not found'}`);
+
+            // Check if PrintManager can access customPrintDialog
+            if (window.DICOM_VIEWER?.MANAGERS?.printManager) {
+                const pm = window.DICOM_VIEWER.MANAGERS.printManager;
+                results.push(`<strong>PrintManager.customPrintDialog:</strong> ${!!pm.customPrintDialog ? '✓ Available (getter works!)' : '✗ Returns null'}`);
+                results.push(`<strong>PrintManager.isElectron:</strong> ${pm.isElectron ? '✓ true' : '✗ false'}`);
+            }
+
+            // Check Electron API
+            results.push(`<strong>window.electronAPI:</strong> ${!!window.electronAPI ? '✓ Available' : '✗ Not found'}`);
+            results.push(`<strong>electronAPI.isElectron:</strong> ${window.electronAPI?.isElectron ? '✓ true' : '✗ false'}`);
+
+            status.innerHTML = results.map(r => `<p class="mb-2">${r}</p>`).join('');
+        }
+
+        // Check immediately
+        checkStatus();
+
+        // Check after scripts load
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(checkStatus, 100);
+        });
+
+        // Manual recheck button
+        document.getElementById('checkBtn').addEventListener('click', checkStatus);
+    </script>
+
+    <!-- Load custom print dialog -->
+    <script src="js/components/custom-print-dialog.js?v=<?= time() ?>"></script>
+    <script src="js/components/print-manager-v3.js?v=<?= time() ?>"></script>
+</body>
+</html>

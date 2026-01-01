@@ -216,8 +216,18 @@ function getDbConnection() {
  */
 function closeDbConnection() {
     global $dbConnection;
-    if ($dbConnection !== null) {
-        @$dbConnection->close();
+    if ($dbConnection !== null && $dbConnection instanceof mysqli) {
+        // Suppress all errors - connection may already be closed
+        try {
+            // Check if connect_errno is set (means connection failed during init)
+            if (!$dbConnection->connect_errno) {
+                @$dbConnection->close();
+            }
+        } catch (Exception $e) {
+            // Connection already closed or error - ignore
+        } catch (Error $e) {
+            // PHP 7+ errors - ignore
+        }
         $dbConnection = null;
     }
 }

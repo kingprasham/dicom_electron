@@ -5,7 +5,7 @@
  * This file creates the native desktop window and manages the PHP server
  */
 
-const { app, BrowserWindow, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, dialog, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const http = require('http');
@@ -62,6 +62,13 @@ function createSplashWindow() {
  * Create main application window
  */
 function createMainWindow() {
+    const preloadPath = path.join(__dirname, 'preload.js');
+    const fs = require('fs');
+    console.log('========================================');
+    console.log('[Electron] Preload path:', preloadPath);
+    console.log('[Electron] Preload exists:', fs.existsSync(preloadPath));
+    console.log('========================================');
+
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
@@ -72,9 +79,11 @@ function createMainWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            preload: path.join(__dirname, 'preload.js')
+            preload: preloadPath
         }
     });
+
+    console.log('[Electron] Main window created with preload');
 
     // Create application menu
     const menuTemplate = [
@@ -125,6 +134,11 @@ function createMainWindow() {
             label: 'Help',
             submenu: [
                 {
+                    label: 'Test Electron Environment',
+                    click: () => mainWindow.loadURL(`${APP_URL}/electron-test.html`)
+                },
+                { type: 'separator' },
+                {
                     label: 'About',
                     click: () => {
                         dialog.showMessageBox(mainWindow, {
@@ -166,11 +180,22 @@ function createMainWindow() {
         }
     });
 
-    // Handle external links
+    // Handle external links and popups
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        if (url.startsWith('http://localhost')) {
-            return { action: 'allow' };
+        // Allow localhost URLs, about:blank (for popups/print), and blob URLs
+        if (url.startsWith('http://localhost') || url.startsWith('about:') || url.startsWith('blob:')) {
+            return {
+                action: 'allow',
+                overrideBrowserWindowOptions: {
+                    webPreferences: {
+                        nodeIntegration: false,
+                        contextIsolation: true,
+                        preload: path.join(__dirname, 'preload.js')
+                    }
+                }
+            };
         }
+        // Open external links in default browser
         shell.openExternal(url);
         return { action: 'deny' };
     });
@@ -379,6 +404,245 @@ app.on('activate', () => {
 // Cleanup on quit
 app.on('before-quit', () => {
     stopPhpServer();
+});
+
+// ============================================
+// IPC Handlers for Custom Print Dialog
+// ============================================
+
+/**
+ * Get list of system printers
+ * Returns array of printer info objects
+ */
+ipcMain.handle('get-system-printers', async () => {
+    try {
+        if (!mainWindow || !mainWindow.webContents) {
+            console.error('[Electron] Main window not available for printer query');
+            return { success: false, error: 'Main window not available', printers: [] };
+        }
+
+        const printers = await mainWindow.webContents.getPrintersAsync();
+        console.log(`[Electron] Found ${printers.length} system printers`);
+
+        // Format printer info for renderer
+        const formattedPrinters = printers.map(printer => ({
+            name: printer.name,
+            displayName: printer.displayName || printer.name,
+            description: printer.description || '',
+            status: printer.status,
+            isDefault: printer.isDefault,
+            options: printer.options || {}
+        }));
+
+        return { success: true, printers: formattedPrinters };
+    } catch (error) {
+        console.error('[Electron] Error getting printers:', error);
+        return { success: false, error: error.message, printers: [] };
+    }
+});
+
+/**
+ * Print content to a specific printer
+ * @param {Object} options - Print options
+ * @param {string} options.printerName - Name of the printer to use
+ * @param {string} options.htmlContent - HTML content to print
+ * @param {Object} options.printSettings - Print settings (paperSize, orientation, etc.)
+ */
+ipcMain.handle('print-to-printer', async (event, options) => {
+    return new Promise(async (resolve) => {
+        const fs = require('fs');
+        const os = require('os');
+        let tempFilePath = null;
+
+        try {
+            const { printerName, htmlContent, printSettings = {} } = options;
+
+            console.log(`[Electron] Printing to printer: ${printerName || 'default'}`);
+
+            // Write HTML content to a temporary file instead of using data URL
+            // This avoids the ERR_INVALID_URL error for large content with base64 images
+            tempFilePath = path.join(os.tmpdir(), `dicom_print_${Date.now()}.html`);
+            fs.writeFileSync(tempFilePath, htmlContent, 'utf8');
+            console.log(`[Electron] Wrote print content to temp file: ${tempFilePath}`);
+
+            // Create a hidden window for printing
+            const printWindow = new BrowserWindow({
+                show: false,
+                width: 1200,
+                height: 900,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true
+                }
+            });
+
+            // Load the HTML from temp file
+            await printWindow.loadFile(tempFilePath);
+
+            // Wait for content to fully load
+            printWindow.webContents.on('did-finish-load', async () => {
+                // Small delay to ensure rendering is complete
+                await new Promise(r => setTimeout(r, 500));
+
+                // Configure print options
+                const electronPrintOptions = {
+                    silent: true, // Skip system dialog
+                    printBackground: true,
+                    color: printSettings.colorMode !== 'grayscale',
+                    margins: {
+                        marginType: printSettings.margins || 'default'
+                    },
+                    landscape: printSettings.orientation === 'landscape',
+                    copies: printSettings.copies || 1
+                };
+
+                // Set printer name if specified
+                if (printerName && printerName !== 'default') {
+                    electronPrintOptions.deviceName = printerName;
+                }
+
+                // Set paper size if specified
+                if (printSettings.paperSize) {
+                    // Map paper size names to dimensions
+                    const paperSizes = {
+                        'A4': { width: 210000, height: 297000 }, // microns
+                        'A3': { width: 297000, height: 420000 },
+                        'Letter': { width: 215900, height: 279400 },
+                        'Legal': { width: 215900, height: 355600 }
+                    };
+
+                    if (paperSizes[printSettings.paperSize]) {
+                        electronPrintOptions.pageSize = printSettings.paperSize;
+                    }
+                }
+
+                console.log('[Electron] Print options:', electronPrintOptions);
+
+                // Execute print
+                printWindow.webContents.print(electronPrintOptions, (success, errorType) => {
+                    if (success) {
+                        console.log('[Electron] Print job sent successfully');
+                        resolve({ success: true, message: 'Print job sent to printer' });
+                    } else {
+                        console.error('[Electron] Print failed:', errorType);
+                        resolve({ success: false, error: errorType || 'Print failed' });
+                    }
+
+                    // Close the print window
+                    printWindow.close();
+
+                    // Delete temp file
+                    if (tempFilePath && fs.existsSync(tempFilePath)) {
+                        try {
+                            fs.unlinkSync(tempFilePath);
+                            console.log('[Electron] Deleted temp print file');
+                        } catch (e) {
+                            console.warn('[Electron] Could not delete temp file:', e.message);
+                        }
+                    }
+                });
+            });
+
+            // Handle errors
+            printWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+                console.error('[Electron] Print window failed to load:', errorDescription);
+                resolve({ success: false, error: errorDescription });
+                printWindow.close();
+
+                // Delete temp file on error
+                if (tempFilePath && fs.existsSync(tempFilePath)) {
+                    try {
+                        fs.unlinkSync(tempFilePath);
+                    } catch (e) { }
+                }
+            });
+
+        } catch (error) {
+            console.error('[Electron] Print error:', error);
+            resolve({ success: false, error: error.message });
+
+            // Delete temp file on error
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+                try {
+                    fs.unlinkSync(tempFilePath);
+                } catch (e) { }
+            }
+        }
+    });
+});
+
+/**
+ * Print current window content to a specific printer
+ * @param {Object} options - Print options
+ * @param {string} options.printerName - Name of the printer to use
+ * @param {Object} options.printSettings - Print settings
+ */
+ipcMain.handle('print-current-to-printer', async (event, options) => {
+    return new Promise((resolve) => {
+        try {
+            const { printerName, printSettings = {} } = options;
+            const senderWindow = BrowserWindow.fromWebContents(event.sender);
+
+            if (!senderWindow) {
+                resolve({ success: false, error: 'Window not found' });
+                return;
+            }
+
+            console.log(`[Electron] Printing current content to: ${printerName || 'default'}`);
+
+            const electronPrintOptions = {
+                silent: true,
+                printBackground: true,
+                color: printSettings.colorMode !== 'grayscale',
+                landscape: printSettings.orientation === 'landscape',
+                copies: printSettings.copies || 1
+            };
+
+            if (printerName && printerName !== 'default') {
+                electronPrintOptions.deviceName = printerName;
+            }
+
+            if (printSettings.paperSize) {
+                electronPrintOptions.pageSize = printSettings.paperSize;
+            }
+
+            senderWindow.webContents.print(electronPrintOptions, (success, errorType) => {
+                if (success) {
+                    console.log('[Electron] Print job sent successfully');
+                    resolve({ success: true, message: 'Print job sent to printer' });
+                } else {
+                    console.error('[Electron] Print failed:', errorType);
+                    resolve({ success: false, error: errorType || 'Print failed' });
+                }
+            });
+
+        } catch (error) {
+            console.error('[Electron] Print error:', error);
+            resolve({ success: false, error: error.message });
+        }
+    });
+});
+
+/**
+ * Bring main window to front
+ */
+ipcMain.handle('focus-main-window', async () => {
+    try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            console.log('[Electron] Bringing main window to front...');
+            if (mainWindow.isMinimized()) {
+                mainWindow.restore();
+            }
+            mainWindow.focus();
+            mainWindow.show();
+            mainWindow.moveTop();
+            return { success: true };
+        }
+        return { success: false, error: 'Main window not available' };
+    } catch (error) {
+        console.error('[Electron] Error focusing main window:', error);
+        return { success: false, error: error.message };
+    }
 });
 
 // Handle uncaught exceptions

@@ -235,9 +235,15 @@ window.DICOM_VIEWER.PrintTracker = class PrintTracker {
             throw new Error(`Server error: ${response.status}`);
         }
 
-        const json = await response.json();
-        console.log('[DEBUG PrintTracker] logToServer response JSON:', json);
-        return json;
+        const text = await response.text();
+        try {
+            const json = JSON.parse(text);
+            console.log('[DEBUG PrintTracker] logToServer response JSON:', json);
+            return json;
+        } catch (e) {
+            console.error('[DEBUG PrintTracker] Invalid JSON response:', text);
+            throw new Error(`Invalid JSON response: ${text.substring(0, 50)}...`);
+        }
     }
 
     /**

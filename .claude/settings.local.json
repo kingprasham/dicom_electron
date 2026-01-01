@@ -18,7 +18,20 @@
       "Bash(\"C:\\\\xampp\\\\php\\\\php.exe\" \"c:\\\\xampp\\\\htdocs\\\\papa\\\\dicom_again\\\\claude\\\\desktop-version\\\\electron\\\\www\\\\test-print-count.php\")",
       "Bash(\"C:\\\\xampp\\\\php\\\\php.exe\" \"c:\\\\xampp\\\\htdocs\\\\papa\\\\dicom_again\\\\claude\\\\desktop-version\\\\electron\\\\www\\\\test-add-print.php\")",
       "Bash(del \"c:\\\\xampp\\\\htdocs\\\\papa\\\\dicom_again\\\\claude\\\\desktop-version\\\\electron\\\\www\\\\test-print-count.php\")",
-      "Bash(del \"c:\\\\xampp\\\\htdocs\\\\papa\\\\dicom_again\\\\claude\\\\desktop-version\\\\electron\\\\www\\\\test-add-print.php\")"
+      "Bash(del \"c:\\\\xampp\\\\htdocs\\\\papa\\\\dicom_again\\\\claude\\\\desktop-version\\\\electron\\\\www\\\\test-add-print.php\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\":*)",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root -h 127.0.0.1 dicom_viewer_desktop -e \"DESCRIBE configured_printers;\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root -h 127.0.0.1 dicom_viewer_desktop -e \"SELECT COUNT\\(*\\) as printer_count FROM configured_printers;\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root -h 127.0.0.1 dicom_viewer_desktop -e \"SELECT * FROM configured_printers;\")",
+      "Bash(\"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root -h 127.0.0.1:*)",
+      "Bash(curl:*)",
+      "Bash(git restore:*)",
+      "Bash(rm:*)",
+      "Bash(node -c:*)",
+      "Bash(dir \"c:\\\\xampp\\\\htdocs\\\\papa\\\\dicom_again\\\\claude\\\\desktop-version\\\\electron\\\\preload.js\")",
+      "Bash(dir \"C:\\\\xampp\\\\php\\\\php.exe\")",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)"
     ]
   }
 }

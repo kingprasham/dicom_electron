@@ -240,13 +240,13 @@ $clinicsStmt->close();
                     <strong class="text-light">Patient ID:</strong>
                     <div class="text-muted"><?= htmlspecialchars($patient['patient_id']) ?></div>
                 </div>
-                <?php if ($patient['birth_date']): ?>
+                <?php if (isset($patient['birth_date']) && $patient['birth_date']): ?>
                 <div class="col-md-3">
                     <strong class="text-light">Date of Birth:</strong>
                     <div class="text-muted"><?= htmlspecialchars($patient['birth_date']) ?></div>
                 </div>
                 <?php endif; ?>
-                <?php if ($patient['sex']): ?>
+                <?php if (isset($patient['sex']) && $patient['sex']): ?>
                 <div class="col-md-3">
                     <strong class="text-light">Gender:</strong>
                     <div class="text-muted">
@@ -497,6 +497,8 @@ $clinicsStmt->close();
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Print Counter Badge Component -->
     <script src="<?= BASE_PATH ?>/js/components/print-counter-badge.js"></script>
+    <!-- Custom Print Dialog for Electron -->
+    <script src="<?= BASE_PATH ?>/js/components/custom-print-dialog.js?v=<?= time() ?>"></script>
     <script>
         let currentStudyUID = null;
         let currentOrthancId = null;
