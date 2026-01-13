@@ -288,6 +288,35 @@ if ($result) {
             <i class="bi bi-check-circle-fill"></i> Saved successfully
         </div>
 
+        <!-- DICOM Activity Monitor -->
+        <div class="settings-card">
+            <div class="category-header d-flex justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-activity category-icon text-success"></i>
+                    <h4 class="mb-0 text-white">DICOM Activity Monitor</h4>
+                    <span id="activityStatusBadge" class="badge bg-secondary ms-2">Checking...</span>
+                </div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="refreshDicomActivity()" id="refreshActivityBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                    <button type="button" class="btn btn-outline-info btn-sm" onclick="logManualPing()">
+                        <i class="bi bi-plus-circle"></i> Log Test Ping
+                    </button>
+                </div>
+            </div>
+            <p class="text-muted small mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                Monitor incoming connections and pings from CT/MRI consoles. Activity updates automatically every 30 seconds.
+            </p>
+
+            <div id="dicomActivityList" class="border border-secondary rounded p-3" style="max-height: 300px; overflow-y: auto; background: rgba(0,0,0,0.2);">
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-hourglass-split me-2"></i>Loading activity...
+                </div>
+            </div>
+        </div>
+
         <!-- DICOM Nodes Configuration -->
         <div class="settings-card">
             <div class="category-header d-flex justify-content-between">
@@ -978,6 +1007,8 @@ if ($result) {
             loadNodes();
             loadPrinters();
             loadPcpndtPrinters();
+            loadDicomActivity();
+            startActivityAutoRefresh();
         }
 
         function lockSettings() {
@@ -1225,6 +1256,130 @@ if ($result) {
             detectedPrintersModal = new bootstrap.Modal(document.getElementById('detectedPrintersModal'));
             pcpndtPrinterModal = new bootstrap.Modal(document.getElementById('pcpndtPrinterModal'));
         });
+
+        // ===== DICOM Activity Monitor =====
+        let activityRefreshInterval = null;
+
+        async function loadDicomActivity() {
+            const listEl = document.getElementById('dicomActivityList');
+            const badge = document.getElementById('activityStatusBadge');
+            
+            try {
+                const response = await fetch(`${basePath}/api/dicom/activity.php?hours=24&limit=20`);
+                const data = await response.json();
+
+                if (data.success) {
+                    // Update status badge
+                    if (data.orthanc_connected) {
+                        badge.className = 'badge bg-success ms-2';
+                        badge.textContent = 'Connected';
+                    } else {
+                        badge.className = 'badge bg-warning ms-2';
+                        badge.textContent = 'Orthanc Offline';
+                    }
+
+                    if (data.activities && data.activities.length > 0) {
+                        listEl.innerHTML = data.activities.map(a => `
+                            <div class="d-flex align-items-center mb-2 p-2 border-start border-3 ${getActivityBorderClass(a.event_type)}" style="background: rgba(255,255,255,0.02);">
+                                <i class="bi ${getActivityIcon(a.event_type)} me-3 fs-5"></i>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex justify-content-between">
+                                        <strong class="text-light">${a.event_type || 'Activity'}</strong>
+                                        <small class="text-muted">${formatActivityTime(a.created_at)}</small>
+                                    </div>
+                                    <div class="text-muted small">
+                                        ${a.message || ''}
+                                        ${a.source_aet ? `<span class="badge bg-secondary ms-1">${a.source_aet}</span>` : ''}
+                                        ${a.source_ip ? `<span class="text-info ms-1">${a.source_ip}</span>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('');
+                    } else {
+                        listEl.innerHTML = `
+                            <div class="text-center text-muted py-4">
+                                <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                No recent DICOM activity in the last 24 hours.
+                            </div>
+                        `;
+                    }
+                } else {
+                    badge.className = 'badge bg-danger ms-2';
+                    badge.textContent = 'Error';
+                    listEl.innerHTML = `<div class="alert alert-danger">Error loading activity: ${data.error}</div>`;
+                }
+            } catch (error) {
+                badge.className = 'badge bg-danger ms-2';
+                badge.textContent = 'Error';
+                listEl.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+            }
+        }
+
+        function getActivityIcon(eventType) {
+            const type = (eventType || '').toLowerCase();
+            if (type.includes('store') || type.includes('newinstance')) return 'bi-download text-success';
+            if (type.includes('echo') || type.includes('ping')) return 'bi-broadcast-pin text-info';
+            if (type.includes('query') || type.includes('find')) return 'bi-search text-warning';
+            if (type.includes('move') || type.includes('retrieve')) return 'bi-arrow-left-right text-primary';
+            if (type.includes('delete')) return 'bi-trash text-danger';
+            return 'bi-activity text-muted';
+        }
+
+        function getActivityBorderClass(eventType) {
+            const type = (eventType || '').toLowerCase();
+            if (type.includes('store') || type.includes('newinstance')) return 'border-success';
+            if (type.includes('echo') || type.includes('ping')) return 'border-info';
+            if (type.includes('query') || type.includes('find')) return 'border-warning';
+            return 'border-secondary';
+        }
+
+        function formatActivityTime(timestamp) {
+            if (!timestamp) return '';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = (now - date) / 1000; // seconds
+            if (diff < 60) return 'Just now';
+            if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+            return date.toLocaleString();
+        }
+
+        function refreshDicomActivity() {
+            const btn = document.getElementById('refreshActivityBtn');
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+            loadDicomActivity().then(() => {
+                btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh';
+            });
+        }
+
+        async function logManualPing() {
+            try {
+                const response = await fetch(`${basePath}/api/dicom/activity.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event_type: 'manual_ping',
+                        message: 'Manual test ping from admin',
+                        source_aet: 'ADMIN_TEST'
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showSuccess('Test ping logged!');
+                    loadDicomActivity();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function startActivityAutoRefresh() {
+            if (activityRefreshInterval) clearInterval(activityRefreshInterval);
+            activityRefreshInterval = setInterval(loadDicomActivity, 30000); // Every 30 seconds
+        }
+
 
         async function detectSystemPrinters() {
             const btn = event.target.closest('button');

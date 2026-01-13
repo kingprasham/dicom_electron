@@ -69,12 +69,18 @@ function requireLogin($redirect_url = null) {
 
 /**
  * Check if session has expired
+ * Note: Admin sessions are infinite (until logout)
  *
  * @return bool True if expired
  */
 function isSessionExpired() {
     if (!isset($_SESSION['last_activity'])) {
         return true;
+    }
+
+    // Admin sessions are infinite - they only end on explicit logout
+    if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'super_admin'])) {
+        return false;  // Never expire admin sessions
     }
 
     $inactive_time = time() - $_SESSION['last_activity'];
