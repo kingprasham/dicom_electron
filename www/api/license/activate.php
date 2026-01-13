@@ -164,27 +164,53 @@ try {
                 $isSameLicense = $result['_isSameLicense'] ?? false;
                 $setupAlreadyComplete = $result['_setupAlreadyComplete'] ?? false;
 
-                // Only reset setup status for NEW license activation (different license) AND setup not already complete
-                // If setup is already complete, preserve it (user already went through wizard)
-                $shouldReset = !$isSameLicense && !$startTrial && !$setupAlreadyComplete;
+                // Only reset setup status for NEW license activation (different license)
+                // If setup is already complete, preserve it ONLY if it's the SAME license
+                $shouldReset = !$isSameLicense && !$startTrial;
 
                 if ($shouldReset) {
                     try {
-                        // Reset setup_complete flag in system_settings
+                        // 1. Reset setup_complete flag
                         $db->query("UPDATE system_settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
-
-                        // Reset setup_complete flag in settings table
                         $db->query("UPDATE settings SET setting_value = '0' WHERE setting_key = 'setup_complete'");
+                        
+                        // 2. Clear Hospital Information to prevent data leak
+                        $keysToClear = [
+                            // Hospital Details
+                            'hospital_name', 'hospital_department', 'hospital_phone', 'hospital_email',
+                            // Address Details
+                            'hospital_address', 'hospital_address1', 'hospital_address2', 
+                            'hospital_city', 'hospital_state', 'hospital_pincode', 'hospital_country'
+                        ];
+                        
+                        $placeholders = str_repeat('?,', count($keysToClear) - 1) . '?';
+                        $types = str_repeat('s', count($keysToClear));
+                        
+                        // Clear from system_settings
+                        $stmt = $db->prepare("DELETE FROM system_settings WHERE setting_key IN ($placeholders)");
+                        $stmt->bind_param($types, ...$keysToClear);
+                        $stmt->execute();
+                        $stmt->close();
+                        
+                        // Clear from settings
+                        $stmt = $db->prepare("DELETE FROM settings WHERE setting_key IN ($placeholders)");
+                        $stmt->bind_param($types, ...$keysToClear);
+                        $stmt->execute();
+                        $stmt->close();
 
-                        // Reset setup_completed for all admin users
+                        // 3. Reset Onboarding Progress
+                        $db->query("UPDATE onboarding_progress SET current_step = 1, completed_steps = '[]' WHERE id = 1");
+
+                        // 4. Reset setup_completed for all users to force them through any necessary checks if needed
+                        // But mainly we need the Wizard to pop up for the admin
                         $db->query("UPDATE users SET setup_completed = 0 WHERE role = 'admin'");
 
-                        logMessage("Reset setup status for new license activation", 'info', 'license.log');
+                        logMessage("Reset setup status and cleared hospital data for new license activation", 'info', 'license.log');
                     } catch (Exception $e) {
                         logMessage("Could not reset setup status: " . $e->getMessage(), 'debug', 'license.log');
                     }
                 } else {
-                    logMessage("Preserving setup status (same license: $isSameLicense, trial: $startTrial, already complete: $setupAlreadyComplete)", 'info', 'license.log');
+                    logMessage("Preserving setup status (same license: " . ($isSameLicense ? 'yes' : 'no') . ", trial: " . ($startTrial ? 'yes' : 'no') . ")", 'info', 'license.log');
                 }
                 
                 // Look for REGULAR admin user (exclude super admin)

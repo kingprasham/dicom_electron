@@ -379,12 +379,11 @@ if ($result) {
                             <th>Printer Name</th>
                             <th>Paper Size</th>
                             <th>Color Mode</th>
-                            <th>Default</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr><td colspan="5" class="text-center text-muted">No PCPNDT printers configured</td></tr>
+                        <tr><td colspan="4" class="text-center text-muted">No PCPNDT printers configured</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -766,6 +765,78 @@ if ($result) {
         </div>
     </div>
 
+    <!-- Detected Printers Modal -->
+    <div class="modal fade" id="detectedPrintersModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-search me-2"></i>Detected System Printers</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">Select a printer from the list below to add it as a DICOM printer.</p>
+                    <div id="detectedPrintersList">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2 text-muted">Detecting printers...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PCPNDT Printer Modal -->
+    <div class="modal fade" id="pcpndtPrinterModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-file-medical me-2 text-success"></i>Configure PCPNDT Printer</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="pcpndtPrinterForm">
+                        <input type="hidden" name="id" id="pcpndtPrinterId">
+                        <div class="mb-3">
+                            <label class="form-label">Select System Printer <span class="text-danger">*</span></label>
+                            <select class="form-select" name="printer_name" id="pcpndtPrinterName" required>
+                                <option value="">-- Detecting printers... --</option>
+                            </select>
+                            <small class="text-muted">Windows printers detected on this system</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Paper Size</label>
+                            <select class="form-select" name="paper_size" id="pcpndtPaperSize">
+                                <option value="A5">A5 (148 × 210 mm)</option>
+                                <option value="A4">A4 (210 × 297 mm)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Color Mode</label>
+                            <select class="form-select" name="color_mode" id="pcpndtColorMode">
+                                <option value="color">Color</option>
+                                <option value="grayscale">Grayscale</option>
+                            </select>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="is_default" id="pcpndtIsDefault">
+                            <label class="form-check-label">Set as Default PCPNDT Printer</label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="savePcpndtPrinter()">
+                        <i class="bi bi-check-lg me-1"></i>Save PCPNDT Printer
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="<?= BASE_PATH ?>/assets/js/electron-input-fix.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
@@ -906,6 +977,7 @@ if ($result) {
             loadSettings();
             loadNodes();
             loadPrinters();
+            loadPcpndtPrinters();
         }
 
         function lockSettings() {
@@ -1145,6 +1217,15 @@ if ($result) {
             }
         };
 
+        let detectedPrintersModal = null;
+        let pcpndtPrinterModal = null;
+        let detectedPrintersCache = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            detectedPrintersModal = new bootstrap.Modal(document.getElementById('detectedPrintersModal'));
+            pcpndtPrinterModal = new bootstrap.Modal(document.getElementById('pcpndtPrinterModal'));
+        });
+
         async function detectSystemPrinters() {
             const btn = event.target.closest('button');
             const originalHTML = btn.innerHTML;
@@ -1156,9 +1237,17 @@ if ($result) {
                 const result = await response.json();
 
                 if (result.success && result.printers && result.printers.length > 0) {
-                    alert(`Found ${result.printers.length} printer(s). Add them manually using the Add Printer button.`);
+                    detectedPrintersCache = result.printers;
+                    renderDetectedPrinters(result.printers);
+                    detectedPrintersModal.show();
                 } else {
-                    alert(result.message || 'No printers detected.');
+                    document.getElementById('detectedPrintersList').innerHTML = `
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            ${result.message || 'No printers detected on this system.'}
+                        </div>
+                    `;
+                    detectedPrintersModal.show();
                 }
             } catch (error) {
                 alert('Error detecting printers: ' + error.message);
@@ -1167,6 +1256,167 @@ if ($result) {
                 btn.innerHTML = originalHTML;
             }
         }
+
+        function renderDetectedPrinters(printers) {
+            const listEl = document.getElementById('detectedPrintersList');
+            
+            const html = printers.map((p, index) => `
+                <div class="d-flex align-items-center p-3 border border-secondary rounded mb-2" style="background: rgba(255,255,255,0.03);">
+                    <i class="bi bi-printer-fill text-info me-3 fs-4"></i>
+                    <div class="flex-grow-1">
+                        <strong class="text-light">${p.name}</strong>
+                        <div class="text-muted small">
+                            <span class="me-3"><i class="bi bi-cpu me-1"></i>${p.driver || 'Unknown Driver'}</span>
+                            <span><i class="bi bi-hdd me-1"></i>${p.port || 'Unknown Port'}</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="addDetectedPrinter(${index})">
+                        <i class="bi bi-plus-circle me-1"></i>Add
+                    </button>
+                </div>
+            `).join('');
+
+            listEl.innerHTML = html;
+        }
+
+        async function addDetectedPrinter(index) {
+            const printer = detectedPrintersCache[index];
+            if (!printer) return;
+
+            // Pre-fill the printer form and show the add printer modal
+            document.getElementById('printerForm').reset();
+            document.getElementById('printerId').value = '';
+            document.getElementById('printerName').value = printer.name;
+            document.getElementById('printerHost').value = 'localhost';
+            document.getElementById('printerPort').value = '4110';
+            document.getElementById('printerAET').value = 'DICOM_PRINT';
+            document.getElementById('printerDesc').value = `Auto-detected: ${printer.driver || 'System Printer'}`;
+
+            detectedPrintersModal.hide();
+            printerModal.show();
+        }
+
+        // PCPNDT Printer Functions
+        async function openPcpndtPrinterModal(existingPrinter = null) {
+            // Load detected printers into the select
+            const selectEl = document.getElementById('pcpndtPrinterName');
+            selectEl.innerHTML = '<option value="">-- Loading printers... --</option>';
+
+            try {
+                const response = await fetch(`${basePath}/api/settings/detect-printers.php`);
+                const result = await response.json();
+
+                if (result.success && result.printers && result.printers.length > 0) {
+                    selectEl.innerHTML = '<option value="">-- Select a printer --</option>' +
+                        result.printers.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+                } else {
+                    selectEl.innerHTML = '<option value="">-- No printers detected --</option>';
+                }
+            } catch (error) {
+                selectEl.innerHTML = '<option value="">-- Error loading printers --</option>';
+            }
+
+            // Reset or populate form
+            if (existingPrinter) {
+                document.getElementById('pcpndtPrinterId').value = existingPrinter.id || '';
+                document.getElementById('pcpndtPrinterName').value = existingPrinter.printer_name || '';
+                document.getElementById('pcpndtPaperSize').value = existingPrinter.paper_size || 'A5';
+                document.getElementById('pcpndtColorMode').value = existingPrinter.color_mode || 'color';
+                document.getElementById('pcpndtIsDefault').checked = existingPrinter.is_default == 1;
+            } else {
+                document.getElementById('pcpndtPrinterForm').reset();
+                document.getElementById('pcpndtPrinterId').value = '';
+            }
+
+            pcpndtPrinterModal.show();
+        }
+
+        async function savePcpndtPrinter() {
+            const printerName = document.getElementById('pcpndtPrinterName').value;
+            if (!printerName) {
+                alert('Please select a printer');
+                return;
+            }
+
+            const data = {
+                id: document.getElementById('pcpndtPrinterId').value || null,
+                printer_name: printerName,
+                paper_size: document.getElementById('pcpndtPaperSize').value,
+                color_mode: document.getElementById('pcpndtColorMode').value,
+                is_default: document.getElementById('pcpndtIsDefault').checked
+            };
+
+            try {
+                const response = await fetch(`${basePath}/api/settings/pcpndt-printers.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    pcpndtPrinterModal.hide();
+                    loadPcpndtPrinters();
+                    showSuccess('PCPNDT Printer saved successfully!');
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to save printer'));
+                }
+            } catch (error) {
+                alert('Error saving PCPNDT printer: ' + error.message);
+            }
+        }
+
+        async function loadPcpndtPrinters() {
+            const tbody = document.querySelector('#pcpndtPrintersTable tbody');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
+
+            try {
+                const response = await fetch(`${basePath}/api/settings/pcpndt-printers.php`);
+                const data = await response.json();
+
+                if (data.success && data.printers && data.printers.length > 0) {
+                    tbody.innerHTML = data.printers.map(printer => `
+                        <tr>
+                            <td>${printer.printer_name} ${printer.is_default == 1 ? '<span class="badge bg-primary ms-2">Default</span>' : ''}</td>
+                            <td>${printer.paper_size || 'A5'}</td>
+                            <td>${printer.color_mode || 'color'}</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick='openPcpndtPrinterModal(${JSON.stringify(printer)})'>
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="deletePcpndtPrinter(${printer.id})">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No PCPNDT printers configured</td></tr>';
+                }
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error loading printers</td></tr>';
+            }
+        }
+
+        window.deletePcpndtPrinter = async function(id) {
+            if (!confirm('Delete this PCPNDT printer?')) return;
+
+            try {
+                const response = await fetch(`${basePath}/api/settings/pcpndt-printers.php`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const result = await response.json();
+                if (result.success) loadPcpndtPrinters();
+                else alert('Error: ' + result.error);
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        };
+
 
         // Orthanc Connection
         async function testOrthancConnection() {

@@ -152,6 +152,41 @@ window.DICOM_VIEWER.PrintManager = class {
             // Get the HTML content from the print window
             const htmlContent = printWindow.document.documentElement.outerHTML;
 
+            // IF printer is already selected (e.g. from Print Options Modal), skip the dialog and print directly!
+            if (printSettings.printerName) {
+                console.log('[PrintManager] Printer pre-selected, executing direct silent print:', printSettings.printerName);
+
+                try {
+                    // Use CustomPrintDialog's helper if available, or call electronAPI directly
+                    // Since customPrintDialog.printContent handles the API result logging, we can reuse it
+                    // But wait, the original code used this.customPrintDialog.printContent inside onPrint
+                    // Let's verify printContent first. Assuming it wraps printToPrinter.
+
+                    const result = await window.electronAPI.printToPrinter({
+                        printerName: printSettings.printerName,
+                        htmlContent: htmlContent,
+                        printSettings: {
+                            ...this.getEffectivePrintSettings(),
+                            ...printSettings
+                        }
+                    });
+
+                    if (result.success) {
+                        this.showToast('Document sent to printer successfully', 'success');
+                        if (onSuccess) onSuccess();
+                        this.updatePrintStatus('completed');
+                    } else {
+                        throw new Error(result.error || 'Unknown print error');
+                    }
+                } catch (error) {
+                    console.error('[PrintManager] Direct print error:', error);
+                    this.showToast('Print failed: ' + error.message, 'error');
+                    if (onError) onError(error);
+                    this.updatePrintStatus('failed', error.message);
+                }
+                return;
+            }
+
             // Show custom printer selection dialog - this will block if no printers configured
             this.customPrintDialog.show({
                 printSettings: {
@@ -1718,138 +1753,17 @@ window.DICOM_VIEWER.PrintManager = class {
     }
 
     /**
-     * Print Current Layout - Captures the EXACT layout as seen in viewer using html2canvas
-     * This ensures asymmetric layouts, custom grids, and all configurations print correctly
+     * Print Current Layout - Entry point for printing the current view
+     * Opens the options modal for the user to choose print type
      */
     async printCurrentLayout(previewOnly = false) {
-        this.showLoadingModal('Capturing current layout...', 0);
-
         try {
+            // 1. Get current state info
             const viewportContainer = document.getElementById('viewport-container');
-            if (!viewportContainer) {
-                throw new Error('Viewport container not found');
-            }
-
-            // Check if any images are loaded
-            const viewports = viewportContainer.querySelectorAll('.viewport');
-            let hasImages = false;
-            for (const vp of viewports) {
-                try {
-                    const enabledElement = cornerstone.getEnabledElement(vp);
-                    if (enabledElement && enabledElement.image) {
-                        hasImages = true;
-                        break;
-                    }
-                } catch (e) { }
-            }
-
-            if (!hasImages) {
-                this.showToast('No images loaded to print', 'warning');
-                this.hideLoadingModal();
-                return;
-            }
-
-            this.updateLoadingProgress('Capturing viewport layout...', 30);
-
-            // Use html2canvas to capture the exact layout
-            const canvas = await html2canvas(viewportContainer, {
-                backgroundColor: '#000000',
-                scale: 2, // High resolution
-                logging: false,
-                useCORS: true,
-                allowTaint: true,
-                onclone: (clonedDoc) => {
-                    // Fix cloned canvas elements by copying image data
-                    const clonedContainer = clonedDoc.getElementById('viewport-container');
-                    const originalViewports = viewportContainer.querySelectorAll('.viewport');
-                    const clonedViewports = clonedContainer.querySelectorAll('.viewport');
-
-                    originalViewports.forEach((origVp, idx) => {
-                        const origCanvas = origVp.querySelector('canvas');
-                        const clonedCanvas = clonedViewports[idx]?.querySelector('canvas');
-                        if (origCanvas && clonedCanvas) {
-                            const ctx = clonedCanvas.getContext('2d');
-                            clonedCanvas.width = origCanvas.width;
-                            clonedCanvas.height = origCanvas.height;
-                            ctx.drawImage(origCanvas, 0, 0);
-                        }
-                    });
-
-                    // HIDE ALL VIEWPORT OVERLAYS for clean print output
-                    // Hide viewport-info (W/L, Zoom info)
-                    clonedContainer.querySelectorAll('.viewport-info').forEach(el => {
-                        el.style.display = 'none';
-                    });
-
-                    // HANDLE EMPTY VIEWPORTS - Make them completely black
-                    clonedViewports.forEach(vp => {
-                        // Check if viewport is empty (has empty indicator or text)
-                        if (vp.querySelector('.empty-viewport-indicator') || vp.textContent.includes('Drop image here') || vp.dataset.isEmpty === 'true') {
-                            vp.innerHTML = ''; // WIPE CONTENT
-                            vp.style.background = '#000000';
-                            vp.style.backgroundImage = 'none';
-                            vp.style.border = '1px solid #333'; // Minimal border to show grid structure
-                        }
-                    });
-
-                    // Hide slice indicators
-                    clonedContainer.querySelectorAll('.slice-indicator').forEach(el => {
-                        el.style.display = 'none';
-                    });
-                    // Hide drawing overlays
-                    clonedContainer.querySelectorAll('.drawing-overlay').forEach(el => {
-                        el.style.display = 'none';
-                    });
-                    // Hide crosshairs - CORRECT selectors
-                    clonedContainer.querySelectorAll('.crosshair-container, .crosshair-h, .crosshair-v, .crosshair, .crosshair-overlay, .crosshair-line').forEach(el => {
-                        el.style.display = 'none';
-                    });
-                    // Hide any other overlays
-                    clonedContainer.querySelectorAll('.viewport-overlay').forEach(el => {
-                        el.style.display = 'none';
-                    });
-                    // Hide empty viewport indicators
-                    clonedContainer.querySelectorAll('.empty-viewport-indicator').forEach(el => {
-                        el.style.display = 'none';
-                    });
-                    // Hide active viewport border/highlight (including yellow border)
-                    clonedViewports.forEach(vp => {
-                        vp.classList.remove('active');
-                        vp.classList.remove('selected');
-                        vp.style.outline = 'none';
-                        vp.style.boxShadow = 'none';
-                        vp.style.border = 'none';
-                    });
-                    // Remove viewport name pseudo-element labels by clearing data attribute
-                    clonedViewports.forEach(vp => {
-                        vp.removeAttribute('data-viewport-name');
-                    });
-                    // Hide image number overlays
-                    clonedContainer.querySelectorAll('.image-page-number').forEach(el => {
-                        el.style.display = 'none';
-                    });
-                    // Hide page indicator
-                    clonedContainer.querySelectorAll('.page-indicator').forEach(el => {
-                        el.style.display = 'none';
-                    });
-                }
-            });
-
-            this.updateLoadingProgress('Generating print document...', 60);
-
-            const imageDataUrl = canvas.toDataURL('image/png', 1.0);
-
-            // Get patient info
-            const state = window.DICOM_VIEWER.STATE;
-            const currentImage = state.currentSeriesImages?.[state.currentImageIndex] || {};
-            const patientInfo = {
-                name: currentImage.patient_name || currentImage.patientName || 'Unknown Patient',
-                id: currentImage.patient_id || currentImage.patientId || '',
-                studyDate: currentImage.study_date || currentImage.studyDate || new Date().toLocaleDateString(),
-                institution: this.hospitalSettings?.hospital_name || 'Medical Imaging Center'
-            };
+            if (!viewportContainer) throw new Error('Viewport container not found');
 
             // Count loaded viewports
+            const viewports = viewportContainer.querySelectorAll('.viewport');
             let loadedCount = 0;
             for (const vp of viewports) {
                 try {
@@ -1858,76 +1772,444 @@ window.DICOM_VIEWER.PrintManager = class {
                 } catch (e) { }
             }
 
-            this.updateLoadingProgress('Preparing print preview...', 80);
-
-            // Get settings
-            const settings = this.getEffectivePrintSettings();
-
-            // Detect layout type from viewport container
-            const containerClasses = viewportContainer.className;
-            let layoutType = '1x1';
-            const layoutMatch = containerClasses.match(/layout-spots-(\d+)/);
-            if (layoutMatch) {
-                const spots = parseInt(layoutMatch[1]);
-                const layoutMap = { 1: '1x1', 2: '1x2', 4: '2x2', 6: '2x3', 8: '2x4', 9: '3x3', 12: '3x4', 15: '3x5', 16: '4x4' };
-                layoutType = layoutMap[spots] || `${spots}`;
+            if (loadedCount === 0) {
+                this.showToast('No images loaded to print', 'warning');
+                return;
             }
 
-            // Generate page content for preview
-            const pageContent = this.generateLayoutPageContent(imageDataUrl, patientInfo, loadedCount);
+            // 2. Get patient info
+            const patientInfo = this.getCurrentPatientInfo();
 
-            this.updateLoadingProgress('Complete!', 100);
-            this.hideLoadingModal();
+            // 3. Get available printers (async)
+            let printers = [];
+            if (this.customPrintDialog) {
+                // Match hospital printers with system printers to get status
+                try {
+                    const matched = await this.customPrintDialog.matchPrinters();
+                    printers = matched;
+                } catch (e) {
+                    console.warn('Failed to load/match printers', e);
+                    // Fallback to hospital printers if match fails
+                    if (this.customPrintDialog.hospitalPrinters) {
+                        printers = this.customPrintDialog.hospitalPrinters;
+                    }
+                }
+            }
 
-            if (previewOnly) {
-                // Show in-window preview modal (no popup)
-                this.showPreviewModal(pageContent, {
-                    title: `Print Preview - Current Layout (${loadedCount} viewports)`,
-                    totalPages: 1,
-                    printSettings: settings,
-                    onPrint: async () => {
-                        // Track print when user clicks Print
-                        await this.trackPrint({
-                            paperSize: settings.paperSize,
-                            orientation: settings.orientation,
-                            colorMode: settings.colorMode,
-                            quality: settings.quality,
-                            layoutType: layoutType,
-                            totalPages: 1,
-                            includePatientInfo: settings.includePatientInfo,
-                            includeAnnotations: settings.includeAnnotations,
-                            includeMeasurements: settings.includeMeasurements
+            // 4. Show the new Options Modal
+            this.showPrintOptionsModal(patientInfo, loadedCount, printers);
+
+        } catch (error) {
+            console.error('Print Layout Error:', error);
+            this.showToast('Failed to initialize print: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Helper: Get current patient info from viewer state
+     */
+    getCurrentPatientInfo() {
+        const state = window.DICOM_VIEWER.STATE || {};
+        const currentImage = state.currentSeriesImages?.[state.currentImageIndex] || {};
+        return {
+            name: currentImage.patient_name || currentImage.patientName || 'Unknown Patient',
+            id: currentImage.patient_id || currentImage.patientId || '',
+            studyDate: currentImage.study_date || currentImage.studyDate || new Date().toLocaleDateString(),
+            institution: this.hospitalSettings?.hospital_name || 'Medical Imaging Center'
+        };
+    }
+
+    /**
+     * Helper: Capture the current viewport container using html2canvas
+     */
+    async captureViewportSnapshot(viewportContainer) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                this.showLoadingModal('Capturing snapshot...', 30);
+
+                const canvas = await html2canvas(viewportContainer, {
+                    backgroundColor: '#000000',
+                    scale: 2, // High resolution
+                    logging: false,
+                    useCORS: true,
+                    allowTaint: true,
+                    onclone: (clonedDoc) => {
+                        // Fix cloned canvas elements by copying image data
+                        const clonedContainer = clonedDoc.getElementById('viewport-container');
+                        const originalViewports = viewportContainer.querySelectorAll('.viewport');
+                        const clonedViewports = clonedContainer.querySelectorAll('.viewport');
+
+                        originalViewports.forEach((origVp, idx) => {
+                            const origCanvas = origVp.querySelector('canvas');
+                            const clonedCanvas = clonedViewports[idx]?.querySelector('canvas');
+                            if (origCanvas && clonedCanvas) {
+                                const ctx = clonedCanvas.getContext('2d');
+                                clonedCanvas.width = origCanvas.width;
+                                clonedCanvas.height = origCanvas.height;
+                                ctx.drawImage(origCanvas, 0, 0);
+                            }
+                        });
+
+                        // HIDE ALL OVERLAYS for clean print
+                        const selectorsToHide = [
+                            '.viewport-info', '.slice-indicator', '.drawing-overlay',
+                            '.crosshair-container', '.crosshair-h', '.crosshair-v', '.crosshair',
+                            '.crosshair-overlay', '.crosshair-line', '.viewport-overlay',
+                            '.empty-viewport-indicator', '.image-page-number', '.page-indicator'
+                        ];
+
+                        selectorsToHide.forEach(sel => {
+                            clonedContainer.querySelectorAll(sel).forEach(el => el.style.display = 'none');
+                        });
+
+                        // Handle empty viewports
+                        clonedViewports.forEach(vp => {
+                            if (vp.querySelector('.empty-viewport-indicator') || vp.textContent.includes('Drop image here') || vp.dataset.isEmpty === 'true') {
+                                vp.innerHTML = '';
+                                vp.style.background = '#000000';
+                                vp.style.backgroundImage = 'none';
+                                vp.style.border = '1px solid #333';
+                            }
+                            // Remove selection styles
+                            vp.classList.remove('active', 'selected');
+                            vp.style.outline = 'none';
+                            vp.style.boxShadow = 'none';
+                            vp.style.border = 'none';
+                            vp.removeAttribute('data-viewport-name');
                         });
                     }
                 });
-            } else {
-                // Direct print - track and show printer dialog
-                await this.trackPrint({
-                    paperSize: settings.paperSize,
-                    orientation: settings.orientation,
-                    colorMode: settings.colorMode,
-                    quality: settings.quality,
-                    layoutType: layoutType,
-                    totalPages: 1,
-                    includePatientInfo: settings.includePatientInfo,
-                    includeAnnotations: settings.includeAnnotations,
-                    includeMeasurements: settings.includeMeasurements
-                });
 
-                // Generate full printable HTML and show printer dialog
-                const fullPrintHTML = this.generatePrintableHTML(pageContent, settings);
-                await this.directPrintWithDialog(fullPrintHTML, settings);
+                this.updateLoadingProgress('Snapshot ready', 100);
+                this.hideLoadingModal();
+                resolve(canvas.toDataURL('image/png', 1.0));
+
+            } catch (error) {
+                this.hideLoadingModal();
+                reject(error);
+            }
+        });
+    }
+
+    /**
+     * Show the redesigned Print Options Modal
+     */
+    showPrintOptionsModal(patientInfo, loadedCount, printers = []) {
+        // Remove existing modal if any
+        const existingModal = document.getElementById('printOptionsModal');
+        if (existingModal) existingModal.remove();
+
+        const printerOptions = printers.map(p =>
+            `<option value="${p.printer_name}">${p.display_name || p.printer_name}</option>`
+        ).join('');
+
+        const printerSelectHTML = printers.length > 0
+            ? `<div class="card p-2 border-secondary bg-dark">
+                 <div class="d-flex align-items-center">
+                    <img src="assets/img/printer-icon-sm.png" onerror="this.src='assets/img/printer-generic.png'" style="height:32px; width:auto;" class="me-3">
+                    <div class="flex-grow-1">
+                        <select class="form-select form-select-sm bg-dark text-light border-secondary" id="printerSelect">
+                            ${printerOptions}
+                        </select>
+                        <div class="small text-success mt-1"><i class="fas fa-check-circle me-1"></i>Online: Ready to print</div>
+                    </div>
+                 </div>
+               </div>`
+            : `<div class="alert alert-warning d-flex align-items-center mb-0 p-2">
+                 <i class="fas fa-exclamation-triangle me-2"></i>
+                 <div class="small">No printers configured. Using system default.</div>
+               </div>`;
+
+        const modalHTML = `
+        <div class="modal fade" id="printOptionsModal" tabindex="-1" data-bs-backdrop="static">
+          <div class="modal-dialog modal-lg modal-dialog-centered">
+             <div class="modal-content bg-dark text-light border-secondary shadow-lg">
+                <div class="modal-header border-secondary bg-darker">
+                   <h5 class="modal-title"><i class="fas fa-print me-2 text-primary"></i>Print Current View</h5>
+                   <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4" style="background: #2b3035;">
+                   <!-- Patient/Study Info -->
+                   <div class="card border-secondary bg-dark mb-4">
+                      <div class="card-body py-2 px-3 d-flex align-items-center">
+                         <div class="me-3 text-primary"><i class="fas fa-user-circle fa-2x"></i></div>
+                         <div>
+                            <h6 class="mb-0 text-info">${patientInfo.name}</h6>
+                            <div class="small opacity-75">ID: <span class="text-light">${patientInfo.id}</span> | Study Date: <span class="text-light">${patientInfo.studyDate}</span></div>
+                         </div>
+                      </div>
+                   </div>
+
+                   <!-- Main Action: Print All Images -->
+                   <div class="card print-option-card mb-4 border-info bg-dark" id="cardPrintAll" style="cursor: pointer; transition: all 0.2s;">
+                      <div class="card-body d-flex align-items-center p-3">
+                         <div class="me-3 text-info"><i class="fas fa-images fa-2x"></i></div>
+                         <div>
+                            <h5 class="mb-1 text-info">Print All ${loadedCount} Images</h5>
+                            <div class="small text-muted">Combines current view grid into print layout</div>
+                         </div>
+                         <div class="ms-auto">
+                            <i class="fas fa-chevron-right text-secondary"></i>
+                         </div>
+                      </div>
+                   </div>
+
+                   <h6 class="text-primary mb-3 small text-uppercase fw-bold"><i class="far fa-file-alt me-2"></i>Or choose special print type:</h6>
+                   
+                   <div class="row g-3 mb-4">
+                      <!-- Medical Report -->
+                      <div class="col-md-6">
+                         <div class="card print-option-card h-100 bg-dark border-secondary" id="cardMedicalReport" style="cursor: pointer; transition: all 0.2s;">
+                            <div class="card-body text-center p-3">
+                               <i class="fas fa-file-medical-alt fa-2x mb-2 text-success"></i>
+                               <h6>Medical Report</h6>
+                               <div class="small text-success"><i class="fas fa-check-circle me-1"></i>Report available</div>
+                            </div>
+                         </div>
+                      </div>
+                      <!-- PCPNDT Form -->
+                      <div class="col-md-6">
+                         <div class="card print-option-card h-100 bg-dark border-secondary" id="cardPCPNDT" style="cursor: pointer; transition: all 0.2s;">
+                            <div class="card-body text-center p-3">
+                               <i class="fas fa-file-contract fa-2x mb-2 text-info"></i>
+                               <h6>PCPNDT Form F</h6>
+                               <div class="small text-muted">Compliance print form</div>
+                            </div>
+                         </div>
+                      </div>
+                   </div>
+                   
+                   <!-- Printer & Settings -->
+                   <div class="mb-3">
+                       <label class="form-label text-light small fw-bold mb-2">Select Printer</label>
+                       ${printerSelectHTML}
+                   </div>
+
+                   <!-- Settings Summary -->
+                   <div class="card bg-secondary border-0 text-light bg-opacity-10">
+                       <div class="card-body p-2 d-flex align-items-center">
+                           <i class="fas fa-info-circle me-2 text-info"></i>
+                           <div class="small flex-grow-1">
+                                <span>Paper: <strong>A4</strong></span>
+                                <span class="mx-2">|</span>
+                                <span>Orientation: <strong>Auto (Landscape)</strong></span>
+                                <span class="mx-2">|</span>
+                                <span>Quality: <strong>High</strong></span>
+                           </div>
+                           <a href="#" class="small text-muted text-decoration-none"><i class="fas fa-cog me-1"></i>App Settings</a>
+                       </div>
+                   </div>
+                </div>
+                <div class="modal-footer border-secondary bg-darker">
+                   <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                   <button type="button" class="btn btn-outline-info" id="btnPreviewOption"><i class="fas fa-eye me-2"></i>Preview</button>
+                   <button type="button" class="btn btn-light" id="btnPrintOption"><i class="fas fa-print me-2"></i>Print</button>
+                </div>
+             </div>
+          </div>
+        </div>
+        <style>
+            .print-option-card:hover {
+                background: #3a3f45 !important;
+                border-color: #0dcaf0 !important;
+                transform: translateY(-2px);
+            }
+            .bg-darker { background-color: #212529 !important; }
+        </style>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        const modalEl = document.getElementById('printOptionsModal');
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+
+        // Styles for hover effects
+        const cards = modalEl.querySelectorAll('.print-option-card');
+        cards.forEach(card => {
+            card.addEventListener('mouseenter', () => card.classList.add('shadow'));
+            card.addEventListener('mouseleave', () => card.classList.remove('shadow'));
+        });
+
+        // Event Handlers
+        let selectedType = 'all'; // Default
+
+        const selectType = (type) => {
+            selectedType = type;
+            // Visual feedback (optional)
+        };
+
+        // Click handlers for cards
+        modalEl.querySelector('#cardPrintAll').onclick = () => {
+            selectType('all');
+            handlePrintAction(true); // Direct action
+        };
+        modalEl.querySelector('#cardMedicalReport').onclick = () => {
+            selectType('report');
+            // Check if report exists logic? Assuming yes for now or trigger report flow
+            handlePrintAction(true);
+        };
+        modalEl.querySelector('#cardPCPNDT').onclick = () => {
+            selectType('pcpndt');
+            handlePrintAction(true);
+        };
+
+        const handlePrintAction = async (isPreview = false) => {
+            modal.hide();
+
+            // Wait for modal to close (animation)
+            await new Promise(r => setTimeout(r, 200));
+
+            // Get selected printer if any
+            const printerSelect = document.getElementById('printerSelect');
+            const printerName = printerSelect ? printerSelect.value : null;
+            if (printerName) {
+                // Update settings temporarily
+                this.printSettings.printerName = printerName;
             }
 
-        } catch (error) {
-            console.error('Layout print error:', error);
-            this.showToast('Print failed: ' + error.message, 'error');
-            // Track failed print
-            await this.updatePrintStatus('failed', error.message);
-        } finally {
-            this.hideLoadingModal();
+            const settings = this.getEffectivePrintSettings();
+            if (printerName) settings.printerName = printerName;
+
+            if (selectedType === 'all') {
+                // Capture and standard print/preview
+                const viewportContainer = document.getElementById('viewport-container');
+
+                // Detect layout type
+                const containerClasses = viewportContainer.className;
+                let layoutType = '1x1';
+                const layoutMatch = containerClasses.match(/layout-spots-(\d+)/);
+                if (layoutMatch) {
+                    const spots = parseInt(layoutMatch[1]);
+                    const layoutMap = { 1: '1x1', 2: '1x2', 4: '2x2', 6: '2x3', 8: '2x4', 9: '3x3', 12: '3x4', 15: '3x5', 16: '4x4' };
+                    layoutType = layoutMap[spots] || `${spots}`;
+                }
+
+                const dataUrl = await this.captureViewportSnapshot(viewportContainer);
+                const pageContent = this.generateLayoutPageContent(dataUrl, patientInfo, loadedCount);
+
+                if (isPreview) {
+                    // Show Google Docs Preview
+                    this.showPreviewModal(pageContent, {
+                        title: `Print Preview - All Images`,
+                        totalPages: 1,
+                        printSettings: settings,
+                        onPrint: async () => {
+                            await this.trackPrint({
+                                paperSize: settings.paperSize,
+                                orientation: settings.orientation,
+                                colorMode: settings.colorMode,
+                                quality: settings.quality,
+                                layoutType: layoutType,
+                                totalPages: 1,
+                                includePatientInfo: settings.includePatientInfo,
+                                includeAnnotations: settings.includeAnnotations,
+                                includeMeasurements: settings.includeMeasurements
+                            });
+                        }
+                    });
+                } else {
+                    // Direct print
+                    await this.trackPrint({
+                        paperSize: settings.paperSize,
+                        orientation: settings.orientation,
+                        colorMode: settings.colorMode,
+                        quality: settings.quality,
+                        layoutType: layoutType,
+                        totalPages: 1,
+                        includePatientInfo: settings.includePatientInfo,
+                        includeAnnotations: settings.includeAnnotations,
+                        includeMeasurements: settings.includeMeasurements
+                    });
+
+                    const fullPrintHTML = this.generatePrintableHTML(pageContent, settings);
+                    await this.directPrintWithDialog(fullPrintHTML, settings);
+                }
+            } else if (selectedType === 'pcpndt') {
+                this.printPCPNDT(patientInfo);
+            } else if (selectedType === 'report') {
+                this.showToast('Select a report to print from the Reports tab.', 'info');
+            }
+
+            setTimeout(() => modalEl.remove(), 500);
+        };
+
+
+        // Footer buttons
+        modalEl.querySelector('#btnPreviewOption').onclick = () => handlePrintAction(true);
+        modalEl.querySelector('#btnPrintOption').onclick = () => handlePrintAction(false);
+    }
+
+    /**
+     * Print PCPNDT Form F - Single Page Composite
+     */
+    async printPCPNDT(patientInfo) {
+        try {
+            const viewportContainer = document.getElementById('viewport-container');
+            const dataUrl = await this.captureViewportSnapshot(viewportContainer);
+
+            // Build PCPNDT Page HTML
+            // Single A4 page, filling maximum space with the grid image
+            const html = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    @page { size: A4 portrait; margin: 10mm; }
+                    body { font-family: sans-serif; margin: 0; padding: 20px; }
+                    .header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+                    .title { font-size: 18px; font-weight: bold; text-align: center; text-transform: uppercase; margin-bottom: 5px; }
+                    .subtitle { font-size: 14px; text-align: center; color: #555; }
+                    .patient-info { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 14px; }
+                    .image-container { width: 100%; text-align: center; border: 1px solid #ccc; padding: 5px; }
+                    .image-container img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+                    .footer { margin-top: 20px; font-size: 12px; text-align: center; color: #777; border-top: 1px solid #eee; padding-top: 10px; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="title">Ultrasound Sonography Report</div>
+                    <div class="subtitle">PCPNDT Form F Compliance</div>
+                </div>
+                <div class="patient-info">
+                    <div>
+                        <div><strong>Patient Name:</strong> ${patientInfo.name}</div>
+                        <div><strong>Patient ID:</strong> ${patientInfo.id}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div><strong>Date:</strong> ${patientInfo.studyDate}</div>
+                        <div><strong>Hospital:</strong> ${patientInfo.institution}</div>
+                    </div>
+                </div>
+                <div class="image-container">
+                    <img src="${dataUrl}" alt="Ultrasound Scan">
+                </div>
+                <div class="footer">
+                    Generated by DICOM Viewer Pro - PCPNDT Compliance Mode
+                </div>
+            </body>
+            </html>
+            `;
+
+            // Print it
+            await this.directPrintWithDialog(html, {
+                paperSize: 'A4',
+                orientation: 'portrait'
+            });
+
+        } catch (e) {
+            console.error(e);
+            this.showToast('PCPNDT Print failed', 'error');
         }
     }
+
+    /*
+     * Legacy/Internal - Captures layout page for standard preview
+     * (We'll keep generateLayoutPageContent logic as is, or updated?)
+     * NO CHANGE NEEDED for generateLayoutPageContent
+     */
+
+    // REPLACING printCurrentLayout implementation with valid one below
 
     /**
      * Generate just the page content for layout print preview (no full document wrapper)
