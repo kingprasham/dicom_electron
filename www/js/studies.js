@@ -183,7 +183,7 @@ function createStudyTableRow(study) {
     const canAddReferredBy = !state.permissions.isReadOnly;
 
     return `
-        <tr id="study-${studyUID}">
+        <tr id="study-${studyUID}" ondblclick="openStudy('${studyUID}', '${orthancId}')" style="cursor: pointer;" title="Double-click to open viewer">
             <td style="text-align: center;">
                 <input type="checkbox" class="study-checkbox" data-orthanc-id="${orthancId}" data-study-uid="${studyUID}" onchange="updateMergeButton()" style="transform: scale(1.3); cursor: pointer;">
             </td>
