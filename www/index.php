@@ -1028,6 +1028,16 @@ $userRole = $_SESSION['role'] ?? 'viewer';
                 console.log(`Applied layout: ${spots} spots (${config.rows}x${config.cols})`);
             }
 
+            // Expose applyLayout globally for auto-fit functionality
+            window.applyLayout = applyLayout;
+
+            // Listen for auto-fit layout events from orthanc-autoload.js
+            document.addEventListener('autoFitLayout', function(e) {
+                const { spots, imageCount } = e.detail;
+                console.log(`[Auto-Fit Event] Applying ${spots} spots for ${imageCount} images`);
+                applyLayout(spots, true);
+            });
+
             // Expose for external use
             window.DICOM_VIEWER.applyLayoutSpots = applyLayout;
 

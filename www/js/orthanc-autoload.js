@@ -17,6 +17,20 @@
         await autoLoadStudyFromOrthanc(studyIdentifier);
     };
 
+    // Calculate optimal layout grid based on image count
+    function calculateOptimalLayout(imageCount) {
+        // Layout options: 1, 2, 4, 6, 8, 9, 12, 15, 16
+        if (imageCount <= 1) return 1;
+        if (imageCount === 2) return 2;
+        if (imageCount <= 4) return 4;
+        if (imageCount <= 6) return 6;
+        if (imageCount <= 8) return 8;
+        if (imageCount <= 9) return 9;
+        if (imageCount <= 12) return 12;
+        if (imageCount <= 15) return 15;
+        return 16; // Max layout (4x4)
+    }
+
     // Check if viewer is ready by looking for key components
     function isViewerReady() {
         return window.DICOM_VIEWER &&
@@ -123,6 +137,24 @@
             if (window.DICOM_VIEWER && window.DICOM_VIEWER.loadImageSeries) {
                 window.DICOM_VIEWER.populateSeriesList(formattedImages);
                 await window.DICOM_VIEWER.loadImageSeries(formattedImages);
+
+                // Auto-fit layout based on image count
+                const imageCount = formattedImages.length;
+                const optimalSpots = calculateOptimalLayout(imageCount);
+
+                console.log(`[Auto-Fit] ${imageCount} images → ${optimalSpots} spots`);
+
+                // Apply the layout (using window function if available)
+                if (window.applyLayout) {
+                    window.applyLayout(optimalSpots, true);
+                } else if (window.DICOM_VIEWER && window.DICOM_VIEWER.applyLayout) {
+                    window.DICOM_VIEWER.applyLayout(optimalSpots, true);
+                } else {
+                    // Fallback: dispatch custom event for index.php to handle
+                    document.dispatchEvent(new CustomEvent('autoFitLayout', {
+                        detail: { spots: optimalSpots, imageCount: imageCount }
+                    }));
+                }
 
                 // Trigger page navigator refresh after images load
                 setTimeout(() => {
