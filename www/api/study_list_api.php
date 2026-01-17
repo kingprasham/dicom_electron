@@ -44,11 +44,21 @@ try {
         }
     }
 
-    // Get studies for this patient
+    // Get studies for this patient with remarks count
     $stmt = $mysqli->prepare("
-        SELECT * FROM cached_studies
-        WHERE patient_id = ?
-        ORDER BY study_date DESC, study_time DESC
+        SELECT cs.*, 
+               COALESCE(r.remarks_count, 0) as remarks_count,
+               r.latest_remark
+        FROM cached_studies cs
+        LEFT JOIN (
+            SELECT study_instance_uid, 
+                   COUNT(*) as remarks_count,
+                   MAX(remark) as latest_remark
+            FROM study_remarks 
+            GROUP BY study_instance_uid
+        ) r ON cs.study_instance_uid = r.study_instance_uid
+        WHERE cs.patient_id = ?
+        ORDER BY cs.study_date DESC, cs.study_time DESC
     ");
     $stmt->bind_param('s', $patient['patient_id']);
     $stmt->execute();

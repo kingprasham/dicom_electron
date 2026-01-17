@@ -134,6 +134,7 @@ function displayStudies(studies) {
                         <th>Modality</th>
                         <th>Referred By</th>
                         <th>Images</th>
+                        <th style="text-align: center;">Remarks</th>
                         <th style="text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -182,6 +183,10 @@ function createStudyTableRow(study) {
     const canPrescribe = state.permissions.canAddPrescriptions;
     const canAddReferredBy = !state.permissions.isReadOnly;
 
+    // Get remarks info
+    const remarksCount = parseInt(study.remarks_count) || 0;
+    const latestRemark = study.latest_remark ? escapeHtml(study.latest_remark.substring(0, 50)) + (study.latest_remark.length > 50 ? '...' : '') : '';
+
     return `
         <tr id="study-${studyUID}" ondblclick="openStudy('${studyUID}', '${orthancId}')" style="cursor: pointer;" title="Double-click to open viewer">
             <td style="text-align: center;">
@@ -211,6 +216,17 @@ function createStudyTableRow(study) {
                 ` : '<span class="text-muted">-</span>')}
             </td>
             <td>${imageCount} images</td>
+            <td style="text-align: center;">
+                ${remarksCount > 0 ? `
+                    <span class="badge bg-warning text-dark" style="font-size: 0.9em; padding: 6px 10px; cursor: pointer;" 
+                          onclick="showRemarkModal('${studyUID}', '${studyDesc}')" 
+                          title="${latestRemark}">
+                        <i class="bi bi-chat-square-text-fill"></i> ${remarksCount}
+                    </span>
+                ` : `
+                    <span class="text-muted" style="font-size: 0.85em;">-</span>
+                `}
+            </td>
             <td style="text-align: center;">
                 <div class="btn-group">
                     <button class="btn-sm btn-primary" onclick="openStudy('${studyUID}', '${orthancId}')" title="Open Study">
