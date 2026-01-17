@@ -423,3 +423,4 @@ register_shutdown_function('closeDbConnection');
 if (DEBUG_MODE) {
     debugLog("Application started - Desktop Mode", 'INFO', 'system');
 }
+    

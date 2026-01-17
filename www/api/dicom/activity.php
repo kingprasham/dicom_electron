@@ -2,18 +2,17 @@
 /**
  * DICOM Activity Monitor API
  * Tracks incoming pings/echoes from CT/MRI consoles via Orthanc
+ * 
+ * This endpoint allows unauthenticated access since it's used for:
+ * - GET: Internal ping monitoring (polling for new activities)
+ * - POST: Webhooks from Orthanc/external DICOM systems
  */
 define('DICOM_VIEWER', true);
 require_once __DIR__ . '/../../includes/config.php';
-require_once __DIR__ . '/../../auth/session.php';
+
+// No authentication required - this is an internal monitoring/webhook endpoint
 
 header('Content-Type: application/json');
-
-if (!isLoggedIn()) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-    exit;
-}
 
 $method = $_SERVER['REQUEST_METHOD'];
 

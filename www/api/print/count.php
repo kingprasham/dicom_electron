@@ -19,11 +19,8 @@ require_once __DIR__ . '/../../auth/session.php';
 header('Content-Type: application/json');
 header('Cache-Control: no-cache, must-revalidate');
 
-if (!isLoggedIn()) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'Not authenticated']);
-    exit;
-}
+// Allow unauthenticated access - session info used for license scoping if available
+$isLoggedIn = isLoggedIn();
 
 $db = getDbConnection();
 
@@ -32,14 +29,16 @@ try {
     $licenseKey = $_GET['license_key'] ?? null;
     $since = $_GET['since'] ?? null;
 
-    // Check if super admin for cross-license queries
+    // Check if super admin for cross-license queries (only if logged in)
     $isSuperAdmin = false;
-    $stmt = $db->prepare("SELECT is_super_admin FROM users WHERE id = ?");
-    $stmt->bind_param("i", $_SESSION['user_id']);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    $isSuperAdmin = $result && $result['is_super_admin'];
+    if ($isLoggedIn && isset($_SESSION['user_id'])) {
+        $stmt = $db->prepare("SELECT is_super_admin FROM users WHERE id = ?");
+        $stmt->bind_param("i", $_SESSION['user_id']);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        $isSuperAdmin = $result && $result['is_super_admin'];
+    }
 
     // Only super admin can filter by license
     if ($licenseKey && !$isSuperAdmin) {

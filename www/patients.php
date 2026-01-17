@@ -503,10 +503,10 @@ $stmt->close();
                 Patient List
             </h2>
             <div class="d-flex gap-2 flex-wrap">
-                <!-- Upload Study Button -->
                 <button class="btn btn-success" onclick="showUploadModal()" title="Upload DICOM/JPG files">
                     <i class="bi bi-cloud-upload"></i> Upload
                 </button>
+
 
                 <!-- Storage Management Dropdown -->
                 <div class="dropdown">
@@ -579,13 +579,25 @@ $stmt->close();
                     </div>
                 </div>
             </form>
-            <?php if ($searchQuery || $startDate || $endDate): ?>
-            <div class="mt-2 text-end">
-                <a href="<?= BASE_PATH ?>/patients.php" class="text-secondary small text-decoration-none">
-                    <i class="bi bi-x-circle"></i> Clear filters
+            
+            <!-- Quick Date Filter Buttons -->
+            <div class="mt-3 d-flex flex-wrap gap-2 align-items-center">
+                <span class="text-muted small me-2"><i class="bi bi-lightning-fill"></i> Quick Filters:</span>
+                <button type="button" class="btn btn-sm btn-outline-info quick-filter-btn" onclick="applyQuickFilter('today')">
+                    <i class="bi bi-calendar-day"></i> Today
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-info quick-filter-btn" onclick="applyQuickFilter('yesterday')">
+                    <i class="bi bi-calendar-minus"></i> Yesterday
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-info quick-filter-btn" onclick="applyQuickFilter('last7days')">
+                    <i class="bi bi-calendar-week"></i> Last 7 Days
+                </button>
+                <?php if ($searchQuery || $startDate || $endDate): ?>
+                <a href="<?= BASE_PATH ?>/patients.php" class="btn btn-sm btn-outline-secondary ms-auto">
+                    <i class="bi bi-x-circle"></i> Clear All
                 </a>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
         </div>
 
         <!-- Patient Content -->
@@ -781,6 +793,178 @@ $stmt->close();
             gridViewBtn.addEventListener('click', () => setView('grid'));
             listViewBtn.addEventListener('click', () => setView('list'));
         });
+
+        // ===== QUICK DATE FILTER FUNCTIONALITY =====
+        function applyQuickFilter(filterType) {
+            const startDateInput = document.querySelector('input[name="start_date"]');
+            const endDateInput = document.querySelector('input[name="end_date"]');
+            const form = startDateInput.closest('form');
+            
+            const today = new Date();
+            let startDate, endDate;
+            
+            // Format date as YYYY-MM-DD
+            const formatDate = (date) => {
+                return date.toISOString().split('T')[0];
+            };
+            
+            switch(filterType) {
+                case 'today':
+                    startDate = formatDate(today);
+                    endDate = formatDate(today);
+                    break;
+                case 'yesterday':
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    startDate = formatDate(yesterday);
+                    endDate = formatDate(yesterday);
+                    break;
+                case 'last7days':
+                    const weekAgo = new Date(today);
+                    weekAgo.setDate(weekAgo.getDate() - 6); // Include today = 7 days
+                    startDate = formatDate(weekAgo);
+                    endDate = formatDate(today);
+                    break;
+            }
+            
+            startDateInput.value = startDate;
+            endDateInput.value = endDate;
+            
+            // Submit the form
+            form.submit();
+        }
+
+        // ===== DICOM PING MONITOR =====
+        let lastPingId = 0;
+        let pingCheckInterval = null;
+        
+        // Start ping monitoring on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            startPingMonitor();
+        });
+        
+        function startPingMonitor() {
+            // Initial fetch to get the latest ping ID (don't notify for existing ones)
+            fetchLatestPingId();
+            
+            // Check for new pings every 5 seconds
+            pingCheckInterval = setInterval(checkForNewPings, 5000);
+            
+            console.log('[Ping Monitor] Started monitoring for DICOM C-ECHO requests');
+        }
+        
+        async function fetchLatestPingId() {
+            try {
+                const basePath = document.querySelector('meta[name="base-path"]')?.content || '<?= BASE_PATH ?>';
+                const response = await fetch(`${basePath}/api/dicom/activity.php?limit=1`);
+                const data = await response.json();
+                
+                if (data.success && data.activities && data.activities.length > 0) {
+                    const latestActivity = data.activities[0];
+                    if (latestActivity.id && !String(latestActivity.id).startsWith('orthanc_')) {
+                        lastPingId = parseInt(latestActivity.id);
+                    }
+                }
+            } catch (error) {
+                console.warn('[Ping Monitor] Initial fetch failed:', error);
+            }
+        }
+        
+        async function checkForNewPings() {
+            try {
+                const basePath = document.querySelector('meta[name="base-path"]')?.content || '<?= BASE_PATH ?>';
+                const response = await fetch(`${basePath}/api/dicom/activity.php?limit=10&hours=1`);
+                const data = await response.json();
+                
+                if (data.success && data.activities) {
+                    for (const activity of data.activities) {
+                        if (String(activity.id).startsWith('orthanc_')) continue;
+                        
+                        const activityId = parseInt(activity.id);
+                        
+                        if (activityId > lastPingId) {
+                            if (activity.event_type === 'ping' || 
+                                activity.event_type === 'c_echo' || 
+                                activity.event_type === 'StableStudy' ||
+                                activity.event_type === 'NewInstance') {
+                                showPingNotification(activity);
+                            }
+                            lastPingId = activityId;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('[Ping Monitor] Check failed:', error);
+            }
+        }
+        
+        function showPingNotification(activity) {
+            let toastContainer = document.getElementById('pingToastContainer');
+            if (!toastContainer) {
+                toastContainer = document.createElement('div');
+                toastContainer.id = 'pingToastContainer';
+                toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+                toastContainer.style.zIndex = '9999';
+                document.body.appendChild(toastContainer);
+            }
+            
+            const toastId = 'ping-toast-' + Date.now();
+            const sourceInfo = activity.source_aet || activity.source_ip || 'Unknown';
+            const eventIcon = getEventIcon(activity.event_type);
+            const eventLabel = getEventLabel(activity.event_type);
+            
+            const toastHtml = `
+                <div id="${toastId}" class="toast show" role="alert" 
+                     style="background: rgba(13, 110, 253, 0.95); border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px);">
+                    <div class="toast-header bg-primary text-white border-0">
+                        <i class="bi ${eventIcon} me-2"></i>
+                        <strong class="me-auto">${eventLabel}</strong>
+                        <small class="text-white-50">Just now</small>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                    </div>
+                    <div class="toast-body text-white">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-broadcast-pin text-warning me-2 fs-4"></i>
+                            <div>
+                                <strong>New machine detected!</strong><br>
+                                <small>Source: ${sourceInfo}</small>
+                                ${activity.modality_name ? `<br><small>Name: ${activity.modality_name}</small>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+            
+            setTimeout(() => {
+                const toast = document.getElementById(toastId);
+                if (toast) {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 500);
+                }
+            }, 10000);
+        }
+        
+        function getEventIcon(eventType) {
+            const icons = {
+                'ping': 'bi-broadcast',
+                'c_echo': 'bi-broadcast',
+                'StableStudy': 'bi-folder-check',
+                'NewInstance': 'bi-file-earmark-plus'
+            };
+            return icons[eventType] || 'bi-activity';
+        }
+        
+        function getEventLabel(eventType) {
+            const labels = {
+                'ping': 'DICOM Ping Received',
+                'c_echo': 'C-ECHO Request',
+                'StableStudy': 'Study Received',
+                'NewInstance': 'New Image'
+            };
+            return labels[eventType] || 'DICOM Activity';
+        }
 
         // Auto-refresh logic
         let lastStudyCount = -1;
